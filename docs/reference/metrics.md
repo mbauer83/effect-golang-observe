@@ -60,16 +60,24 @@ long-lived aggregate may not be.
 A measurement past the last bound is in `Count` and in no bucket. That is how a
 reader tells "everything was fast" from "these bounds are too narrow for this".
 
-`Quantile(share)` is the bound at or below which that share of measurements
-fell — **an upper bound, not an interpolation**, because a bucketed histogram
-knows bounds and does not know values. Its rank is rounded up: the median of
-three measurements is the second one.
+`Quantile(share)` is the tightest bound the distribution can put on where that
+share of measurements fell — **an upper bound, not an interpolation**, because a
+bucketed histogram knows bounds and does not know values. Its rank is rounded
+up: the median of three measurements is the second one.
 
-`DefaultBounds` runs from a hundred microseconds to ten seconds. Much of what a
-runtime brackets is in-process and takes microseconds — a span around a pure
-computation, a scope holding one value — so bounds starting at a millisecond
-would put every measurement in the first bucket and answer every quantile with
-the same number.
+**Never coarser than `Max`.** A bucket bounded at a hundred microseconds holding
+a two-microsecond measurement is not wrong about the bound, but reporting
+"median at most 100µs" beside "longest 2µs" reads as a contradiction — and
+`Max` is the tighter bound, because every measurement is at or below it. So the
+answer is whichever of the two says more. Where the bucket bound *is* the
+tighter one it is still what comes back: the clamp must not throw away
+resolution the buckets do have.
+
+`DefaultBounds` runs from a microsecond to ten seconds, which took two goes to
+get right. Bounds starting at a millisecond put every in-process span in the
+first bucket; starting at a hundred microseconds still did, because a span
+around a `Ref` read or a handler answering from memory takes single-digit
+microseconds.
 
 ## Snapshots
 

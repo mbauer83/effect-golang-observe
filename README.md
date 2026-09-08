@@ -18,6 +18,7 @@ either: the standard library and the runtime, and nothing else.
 | [Traces: a finite collection of events read as a tree](docs/reference/trace.md) | usable |
 | [Live spans and fibers: what is open and running now, in bounded memory](docs/reference/trace.md) | usable; no suspension status or stack trace, which the runtime does not emit |
 | [Metrics: bounded counts, durations and delays](docs/reference/metrics.md) | usable |
+| [Process: memory, compute and per-name costs](docs/reference/process.md) | usable; process-wide, because Go reports no per-goroutine allocation or CPU |
 | Export adapters (OpenTelemetry, Prometheus, statsd) | absent, and [deliberately](docs/reference/metrics.md) |
 
 A GUI over all of this is
@@ -29,6 +30,7 @@ A GUI over all of this is
 observe/                    delivery: Fanout, Filtered, Buffer, Keep
 trace/                      Span, Trace, Assemble, Watch, Fiber, WatchFibers
 metrics/                    Vocabulary, Label, Distribution, Collect
+process/                    Reading, Change, Series, Costs, Costing, Measured
 examples/watching/          a program worth watching, and the watching of it
 examples/cmd/observedemo/   the example as a runnable command
 test/unit/                  behaviour of the public API
@@ -37,7 +39,7 @@ test/architecture/          the claims about this module's shape
 docs/                       reference
 ```
 
-The three packages have no edges between them. Each owns one question, and a
+The four packages have no edges between them. Each owns one question, and a
 program that wants two composes them — which is what keeps a caller who wanted
 a span tree from also acquiring an aggregate.
 
@@ -91,6 +93,8 @@ happened. The scope closed after the items ran, so it is printed after them.
 - [Delivery](docs/reference/observe.md) — fan-out, selection, and the queue
 - [Traces](docs/reference/trace.md) — the tree, the live view, and the fibers
 - [Metrics](docs/reference/metrics.md) — bounded labels, and why they must be
+- [Process](docs/reference/process.md) — memory, compute, and what a window can
+  honestly be attributed to
 - [What this takes from ZIO and Effect](docs/explanation/prior-art.md) — and
   where it deliberately differs
 

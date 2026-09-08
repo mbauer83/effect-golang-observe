@@ -77,6 +77,31 @@ func (span Span) Failed() bool {
 	}
 }
 
+// Self is how long the span took that its children did not.
+//
+// What "hot" means. A span of two hundred milliseconds that spent a hundred
+// and ninety of them inside one child is not where the time went; the child
+// is. Subtracting the children is the whole of the arithmetic a flame graph
+// does, and it is the number to rank by.
+//
+// Zero for an open span, which has no duration to divide, and never negative:
+// children that overlap -- work forked and run at once -- can add up to more
+// than the parent's wall-clock, and a negative self time would be a strange
+// way to report concurrency.
+func (span Span) Self() time.Duration {
+	if span.Open() {
+		return 0
+	}
+	inside := time.Duration(0)
+	for _, child := range span.Children {
+		inside += child.Duration
+	}
+	if inside >= span.Duration {
+		return 0
+	}
+	return span.Duration - inside
+}
+
 // Descendants counts the spans beneath this one.
 func (span Span) Descendants() int {
 	counted := 0

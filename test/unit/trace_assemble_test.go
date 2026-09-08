@@ -182,3 +182,52 @@ func TestASpansOwnEventsAndItsChildrenRenderInTheOrderTheyHappened(t *testing.T)
 		t.Fatalf("unexpected rendering:\n%s\nexpected:\n%s", rendered, expected)
 	}
 }
+
+func TestSelfTimeIsWhatASpansChildrenDidNotTake(t *testing.T) {
+	// What "hot" means. A span that spent almost all of itself inside one
+	// child is not where the time went, and ranking by total duration would
+	// blame it anyway.
+	assembled := trace.Assemble([]effect.RuntimeEvent{
+		spanStarted(1, 0, "outer", 0),
+		spanStarted(2, 1, "inner", time.Millisecond),
+		spanEnded(2, 1, "inner", 9*time.Millisecond, 8*time.Millisecond,
+			effect.EventStatusSuccess),
+		spanEnded(1, 0, "outer", 10*time.Millisecond, 10*time.Millisecond,
+			effect.EventStatusSuccess),
+	})
+
+	outer := assembled.Roots[0]
+	if self := outer.Self(); self != 2*time.Millisecond {
+		t.Fatalf("expected the two milliseconds it kept, got %v", self)
+	}
+	if self := outer.Children[0].Self(); self != 8*time.Millisecond {
+		t.Fatalf("expected a leaf's self time to be its duration, got %v", self)
+	}
+}
+
+func TestSelfTimeIsNeverNegativeAndAnOpenSpanHasNone(t *testing.T) {
+	// Children run at once when work is forked, so they can add up to more
+	// than the parent's wall-clock. A negative self time would be a strange
+	// way to report concurrency.
+	assembled := trace.Assemble([]effect.RuntimeEvent{
+		spanStarted(1, 0, "forking", 0),
+		spanStarted(2, 1, "first", 0),
+		spanEnded(2, 1, "first", 8*time.Millisecond, 8*time.Millisecond,
+			effect.EventStatusSuccess),
+		spanStarted(3, 1, "second", 0),
+		spanEnded(3, 1, "second", 8*time.Millisecond, 8*time.Millisecond,
+			effect.EventStatusSuccess),
+		spanEnded(1, 0, "forking", 9*time.Millisecond, 9*time.Millisecond,
+			effect.EventStatusSuccess),
+		spanStarted(4, 0, "waiting", 0),
+	})
+
+	forking := assembled.Roots[0]
+	if self := forking.Self(); self != 0 {
+		t.Fatalf("expected no self time rather than a negative one, got %v", self)
+	}
+	open := assembled.Open()
+	if self := open[0].Self(); self != 0 {
+		t.Fatalf("expected an open span to have no self time, got %v", self)
+	}
+}

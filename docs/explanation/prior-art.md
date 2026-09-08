@@ -31,6 +31,11 @@ histogram, summary and frequency, and its labels are `MetricLabel` key/value
 pairs — bounded by construction, which is the rule
 [metrics](../reference/metrics.md) is built on.
 
+**Self time is what a flame graph computes.** A span's duration less its
+children's is the number ZIO's and Effect's profiling views rank by, and
+`Span.Self` is that. It is the difference between "this route is slow" and
+"this stage is slow", and only the second is actionable.
+
 ## From Effect
 
 **The devtools wire schema is the shape worth copying.** `DevToolsSchema` sends
@@ -54,6 +59,19 @@ be placed on a timeline rather than only listed under its span.
 `Distribution`, arrived at independently and worth keeping identical, because
 it is what every exposition format wants. `Frequency`, a map from string to
 occurrences, is what `Snapshot.Counts` is by another name.
+
+## What neither offers, because Go does not
+
+Both ecosystems can attribute allocation and CPU to a fiber, because both
+runtimes schedule their own fibers and can account for them. Go schedules
+goroutines and exposes **no per-goroutine allocation counter and no
+per-goroutine CPU clock** — so [process](../reference/process.md) measures the
+process and says so, in the field names rather than in a footnote.
+
+What Go does offer, and neither of them does, is the scheduler's own
+breakdown: running, runnable and waiting goroutine counts. Runnable above the
+thread count is a program short of CPU, which is a diagnosis neither a span
+tree nor a fiber dump gives.
 
 ## Where this deliberately differs
 

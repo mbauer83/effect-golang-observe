@@ -172,3 +172,69 @@ func TestBoundsAreOrderedAndDeduplicatedWhateverTheCallerGave(t *testing.T) {
 		t.Fatalf("expected the measurement in the wider bucket only, got %+v", held.Buckets)
 	}
 }
+
+func TestAQuantileIsNeverCoarserThanTheLongestMeasurement(t *testing.T) {
+	// The report that read as a contradiction: a bucket bounded at a hundred
+	// microseconds holding a two-microsecond measurement gave "median at most
+	// 100µs" beside "longest 2µs". Both were true of the bound and the pair
+	// was nonsense, and Max is the tighter bound because every measurement is
+	// at or below it.
+	collector := metrics.Collect(metrics.Naming(), 100*time.Microsecond, time.Millisecond)
+	for _, took := range []time.Duration{2 * time.Microsecond, 3 * time.Microsecond} {
+		collector.Observe(context.Background(), effect.RuntimeEvent{
+			Kind: effect.EventSpanEnded, Duration: took,
+		})
+	}
+
+	held := collector.Snapshot().Durations[metrics.Label{
+		Kind: effect.EventSpanEnded, Operation: metrics.Other,
+	}]
+	if held.Max != 3*time.Microsecond {
+		t.Fatalf("expected the longest measurement, got %v", held.Max)
+	}
+	if median := held.Quantile(0.5); median > held.Max {
+		t.Fatalf("expected a bound no coarser than the longest, got %v against %v",
+			median, held.Max)
+	}
+	// And the widest share is bounded the same way rather than by the widest
+	// bucket, which nothing measured.
+	if all := held.Quantile(1); all != held.Max {
+		t.Fatalf("expected every measurement bounded by the longest, got %v", all)
+	}
+	// A bound tighter than Max is still reported as the bound: clamping must
+	// not throw away resolution the buckets do have.
+	collector.Observe(context.Background(), effect.RuntimeEvent{
+		Kind: effect.EventSpanEnded, Duration: 900 * time.Microsecond,
+	})
+	wider := collector.Snapshot().Durations[metrics.Label{
+		Kind: effect.EventSpanEnded, Operation: metrics.Other,
+	}]
+	if median := wider.Quantile(0.5); median != 100*time.Microsecond {
+		t.Fatalf("expected the bucket bound where it is the tighter one, got %v", median)
+	}
+}
+
+func TestTheDefaultBucketsResolveWhatARuntimeActuallyBrackets(t *testing.T) {
+	// A span around a Ref read or a handler answering from memory takes
+	// single-digit microseconds. Bounds that put all of those in one bucket
+	// answer every quantile with the same number, which is what the first two
+	// choices of default did.
+	collector := metrics.Collect(metrics.Naming())
+	for _, took := range []time.Duration{
+		2 * time.Microsecond, 3 * time.Microsecond, 40 * time.Microsecond,
+	} {
+		collector.Observe(context.Background(), effect.RuntimeEvent{
+			Kind: effect.EventSpanEnded, Duration: took,
+		})
+	}
+
+	held := collector.Snapshot().Durations[metrics.Label{
+		Kind: effect.EventSpanEnded, Operation: metrics.Other,
+	}]
+	if first, second := held.Quantile(0.5), held.Quantile(1); first == second {
+		t.Fatalf("expected the buckets to tell these apart, got %v for both", first)
+	}
+	if median := held.Quantile(0.5); median > 10*time.Microsecond {
+		t.Fatalf("expected microsecond resolution, got %v", median)
+	}
+}

@@ -10,10 +10,10 @@ import (
 	"testing"
 )
 
-// Three packages, three questions, and no edges between them.
+// Four packages, four questions, and no edges between them.
 //
-// observe delivers events and owns no question about them; trace and metrics
-// each own one and neither needs the other. A program wanting both composes
+// observe delivers events and owns no question about them; trace, metrics and
+// process each own one and none needs another. A program wanting both composes
 // them with observe.Fanout, which is what keeps this a set of parts rather
 // than a framework: an edge here would mean a caller who wanted a span tree
 // had also acquired an aggregate.
@@ -21,6 +21,7 @@ var mayImport = map[string][]string{
 	"observe": {},
 	"trace":   {},
 	"metrics": {},
+	"process": {},
 }
 
 func TestPackagesDependOnNothingHereButThemselves(t *testing.T) {

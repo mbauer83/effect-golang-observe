@@ -38,13 +38,31 @@ func (distribution Distribution) Mean() time.Duration {
 	return distribution.Sum / time.Duration(distribution.Count)
 }
 
-// Quantile is the bucket bound at or below which the given share of
-// measurements fell -- an upper bound and not an interpolation, because a
-// bucketed histogram knows the bound and does not know the value.
+// Quantile is the tightest bound this distribution can put on where the given
+// share of measurements fell -- an upper bound and not an interpolation,
+// because a bucketed histogram knows bounds and does not know values.
+//
+// Never coarser than Max. A bucket bounded at a hundred microseconds holding a
+// two-microsecond measurement is not wrong about the bound, but reporting it
+// beside a longest of two microseconds reads as a contradiction -- and Max is
+// the tighter bound, because every measurement is at or below it. So the
+// answer is whichever of the two says more.
 //
 // A share outside (0, 1] is answered as the largest bound, which is the only
 // bound that is true of every measurement.
 func (distribution Distribution) Quantile(share float64) time.Duration {
+	return distribution.atMost(distribution.bound(share))
+}
+
+// atMost is the tighter of a bucket bound and the largest measurement.
+func (distribution Distribution) atMost(bound time.Duration) time.Duration {
+	if distribution.Count > 0 && distribution.Max < bound {
+		return distribution.Max
+	}
+	return bound
+}
+
+func (distribution Distribution) bound(share float64) time.Duration {
 	if distribution.Count == 0 || len(distribution.Buckets) == 0 {
 		return 0
 	}
@@ -67,15 +85,20 @@ func (distribution Distribution) Quantile(share float64) time.Duration {
 }
 
 // DefaultBounds are the bucket bounds a collector uses when the caller states
-// none: a hundred microseconds to ten seconds, by decades and halves.
+// none: a microsecond to ten seconds, by decades and halves.
 //
-// Chosen for what this measures. Much of what a runtime brackets is in-process
-// and takes microseconds -- a span around a pure computation, a scope holding
-// one value -- so bounds starting at a millisecond would put every measurement
-// in the first bucket and answer every quantile with the same number. Five
-// decades with two bounds each tells "fast" from "slow" from "something is
-// wrong" without pretending to more resolution than a bucketed histogram has.
+// Chosen from what this actually measures, twice. Bounds starting at a
+// millisecond put every in-process span in the first bucket; starting at a
+// hundred microseconds still did, because a span around a Ref read or a
+// handler that answers from memory takes single-digit microseconds. Seven
+// decades with two bounds each tells those apart from the ones that waited on
+// something, without pretending to more resolution than a bucketed histogram
+// has.
 var DefaultBounds = []time.Duration{
+	time.Microsecond,
+	5 * time.Microsecond,
+	10 * time.Microsecond,
+	50 * time.Microsecond,
 	100 * time.Microsecond,
 	500 * time.Microsecond,
 	time.Millisecond,
