@@ -16,7 +16,7 @@ either: the standard library and the runtime, and nothing else.
 |---|---|
 | [Delivery: fan-out, selection, a queue with a named overflow policy](docs/reference/observe.md) | usable |
 | [Traces: a finite collection of events read as a tree](docs/reference/trace.md) | usable |
-| [Live spans: what is open right now, in bounded memory](docs/reference/trace.md) | usable |
+| [Live spans and fibers: what is open and running now, in bounded memory](docs/reference/trace.md) | usable; no suspension status or stack trace, which the runtime does not emit |
 | [Metrics: bounded counts, durations and delays](docs/reference/metrics.md) | usable |
 | Export adapters (OpenTelemetry, Prometheus, statsd) | absent, and [deliberately](docs/reference/metrics.md) |
 
@@ -27,7 +27,7 @@ A GUI over all of this is
 
 ```text
 observe/                    delivery: Fanout, Filtered, Buffer, Keep
-trace/                      Span, Trace, Assemble, Watch
+trace/                      Span, Trace, Assemble, Watch, Fiber, WatchFibers
 metrics/                    Vocabulary, Label, Distribution, Collect
 examples/watching/          a program worth watching, and the watching of it
 examples/cmd/observedemo/   the example as a runnable command
@@ -89,8 +89,10 @@ happened. The scope closed after the items ran, so it is printed after them.
 ## Documentation
 
 - [Delivery](docs/reference/observe.md) — fan-out, selection, and the queue
-- [Traces](docs/reference/trace.md) — the tree, and the live view
+- [Traces](docs/reference/trace.md) — the tree, the live view, and the fibers
 - [Metrics](docs/reference/metrics.md) — bounded labels, and why they must be
+- [What this takes from ZIO and Effect](docs/explanation/prior-art.md) — and
+  where it deliberately differs
 
 ## Development
 

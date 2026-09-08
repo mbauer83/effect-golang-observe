@@ -8,12 +8,15 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/mbauer83/effect-golang-observe/examples/watching"
 	"github.com/mbauer83/effect-golang-observe/metrics"
 	"github.com/mbauer83/effect-golang/effect"
+	"github.com/mbauer83/effect-golang/experimental/direct"
 )
 
 func main() {
@@ -35,6 +38,11 @@ func main() {
 		watching.Restock("lamp", "pallet", "unstocked-widget"))
 	fmt.Printf("restocking: %s\n", outcome(exit))
 
+	// Sampled while work is in flight, because that is the only time the
+	// question has an answer: a fiber is forgotten when it completes and a
+	// span when it ends, so a live view of a finished program is empty.
+	reportLive(runtime, watch)
+
 	// Closing drains the queue. Reading the window before this would show only
 	// what had been delivered so far, which is the price of not paying for
 	// delivery on the observed fiber.
@@ -46,6 +54,44 @@ func main() {
 	reportMeasurements(watch)
 	fmt.Printf("\nstill open: %d span(s); events dropped: %d\n",
 		watch.Running.Count(), watch.Dropped())
+}
+
+// reportLive forks work that waits, looks at what is running, and lets it go.
+//
+// One interpretation, because a forked fiber belongs to the scope that forked
+// it: sampling from a second Run would find the work already interrupted,
+// which is the first thing this got wrong.
+func reportLive(runtime *effect.Runtime, watch *watching.Watch) {
+	program := direct.Run(func(bind *direct.Binder[effect.Unit, watching.Refusal]) []int {
+		held := direct.Bind(bind, watching.Holding(3))
+		direct.Bind(bind, looking(func() { showLive(watch) }))
+		return direct.Bind(bind, watching.Finish(held))
+	})
+	if _, done := runtime.Run(context.Background(), effect.Unit{}, program).Value(); !done {
+		fail(errors.New("the held work did not finish"))
+	}
+	fmt.Printf("  released: %d fiber(s) and %d span(s) still open\n",
+		watch.Fibers.Count(), watch.Running.Count())
+}
+
+// showLive is the sampling itself: what is running, at the instant it is asked.
+func showLive(watch *watching.Watch) {
+	now := time.Now()
+	fmt.Printf("\nwhat is running, sampled while it is (%d fiber(s), %d span(s) open)\n",
+		watch.Fibers.Count(), watch.Running.Count())
+	fmt.Print(indented(watch.Fibers.Render(now)))
+	for _, span := range watch.Running.Open() {
+		fmt.Printf("  %s open %s\n", span.Name, span.Age(now))
+	}
+}
+
+// looking performs one side effect between two stages, which is what sampling
+// a running program is.
+func looking(look func()) effect.Effect[effect.Unit, watching.Refusal, effect.Unit] {
+	return effect.From(func(context.Context, effect.Unit) effect.Exit[watching.Refusal, effect.Unit] {
+		look()
+		return effect.ExitSuccess[watching.Refusal](effect.Unit{})
+	}).Named("look")
 }
 
 func reportTrace(watch *watching.Watch) {

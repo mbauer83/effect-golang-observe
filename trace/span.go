@@ -50,6 +50,21 @@ func (span Span) Open() bool {
 	return span.Ended.IsZero()
 }
 
+// Age is how long an open span has been open, and how long a finished one
+// took counted from now -- so a caller reporting live spans has one question
+// to ask.
+//
+// The reason a live view is worth more than a count: twelve spans open is a
+// program working, and one span open for four minutes is a program stuck.
+// Duration cannot answer it, because the runtime measures a span when it ends
+// and an open span has not.
+func (span Span) Age(now time.Time) time.Duration {
+	if !span.Open() {
+		return span.Duration
+	}
+	return now.Sub(span.Started)
+}
+
 // Failed says the span ended in something other than success. It is false for
 // an open span, which has not ended in anything yet.
 func (span Span) Failed() bool {

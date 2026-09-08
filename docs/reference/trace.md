@@ -7,7 +7,8 @@ loses nothing — and the wrong shape to read: the question a person asks is
 
 ```go
 trace.Assemble(events []effect.RuntimeEvent) Trace
-trace.Watch() *Running
+trace.Watch() *Running        // the spans open now
+trace.WatchFibers() *Fibers   // the fibers running now
 
 func (trace Trace) Render() string
 func (trace Trace) Walk(visit func(span Span, depth int))
@@ -19,6 +20,11 @@ func (running *Running) Open() []Span
 func (running *Running) Count() int
 func (running *Running) Started() uint64
 func (running *Running) Ended() uint64
+
+func (fibers *Fibers) Running() []Fiber
+func (fibers *Fibers) Render(now time.Time) string
+func (span Span) Age(now time.Time) time.Duration
+func (fiber Fiber) Age(now time.Time) time.Duration
 ```
 
 ## Two questions, bounded differently
@@ -35,6 +41,36 @@ That is what makes it safe to install for the life of a program, which is when
 the question actually gets asked. It does not accumulate the events inside a
 span; those are unbounded in a long-lived span, and the collection that does
 hold them is bounded by the window instead.
+
+## Two structures, because they answer different questions
+
+A span is the **logical** structure: what the program said it was doing. A
+fiber is the **execution** structure: what the runtime is actually running.
+A program that has stopped responding is found through the second, which is
+why ZIO's `Fiber.dump` reports a fiber's age before it reports anything else
+about it, and why `dumpAllWith` walks the tree from the roots rather than
+listing fibers flat.
+
+`WatchFibers` is that view. It keeps only the running fibers, nested as they
+were forked, oldest first — by the runtime's own timestamps and not by the
+order the events arrived, because fibers that begin at once arrive in whichever
+order their goroutines got scheduled, and a live view that reordered itself
+between two readings of the same three fibers would be unreadable.
+
+A fiber whose forker has already completed is a root here. That is the truthful
+reading rather than a hole in the tree: the parent is gone, this one is not,
+and a program forking work that outlives its forker is doing something
+deliberate.
+
+**`Age` is the question a live view exists to answer.** Twelve spans open is a
+program working; one span open for four minutes is a program stuck. `Duration`
+cannot say it, because the runtime measures a span when it *ends*.
+
+Two things ZIO's dump has and this cannot: a **suspension status** — whether a
+fiber is running or blocked, and on what — and a **stack trace**. Neither is
+derivable from the events this runtime emits, and both would have to come from
+the runtime rather than from a reader of it. Saying so beats reporting
+"running" for a fiber that is blocked.
 
 ## What a Span carries
 

@@ -18,10 +18,16 @@ import (
 
 // Watch is everything a program needs to answer for itself.
 type Watch struct {
-	// Running is the spans open right now. Not buffered: the question is what
-	// is happening at this instant, and an answer waiting in a queue is the
-	// wrong answer to it.
+	// Running is the spans open right now, and Fibers the fibers. Neither is
+	// buffered: the question is what is happening at this instant, and an
+	// answer waiting in a queue is the wrong answer to it.
+	//
+	// Two trackers because they answer different questions. A span is the
+	// logical structure -- what the program said it was doing -- and a fiber
+	// is the execution one. A program that has stopped responding is found
+	// through the second.
 	Running *trace.Running
+	Fibers  *trace.Fibers
 	// Collected is the bounded aggregate, and Window the recent events the
 	// trace is folded from. Both are behind the queue, because neither is
 	// asked often enough to be worth paying for on the observed fiber.
@@ -41,6 +47,7 @@ func Watching(window int, operations ...string) (*Watch, error) {
 	}
 	watch := &Watch{
 		Running:   trace.Watch(),
+		Fibers:    trace.WatchFibers(),
 		Collected: metrics.Collect(metrics.Naming(operations...)),
 		Window:    recent,
 	}
@@ -52,7 +59,7 @@ func Watching(window int, operations ...string) (*Watch, error) {
 	if err != nil {
 		return nil, err
 	}
-	watch.observer = observe.Fanout(watch.Running, watch.queued)
+	watch.observer = observe.Fanout(watch.Running, watch.Fibers, watch.queued)
 	return watch, nil
 }
 
