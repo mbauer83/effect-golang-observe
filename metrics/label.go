@@ -11,10 +11,18 @@ import (
 
 // Other is the operation name an unlisted operation is measured under.
 //
-// One bucket for everything unnamed rather than a bucket per name: the point
-// of declaring a vocabulary is that the number of series cannot grow with the
-// traffic, and an escape hatch that grew would give the guarantee away.
+// One bucket for everything undeclared rather than a bucket per name: the
+// point of declaring a vocabulary is that the number of series cannot grow
+// with the traffic, and an escape hatch that grew would give the guarantee
+// away.
 const Other = "other"
+
+// Unnamed is what an event that names no operation is measured under.
+//
+// Distinct from Other, because "this names no operation" and "this names one I
+// was not told to distinguish" are different facts, and a reader who cannot
+// tell them apart will go looking for work that does not exist.
+const Unnamed = ""
 
 // Vocabulary is the set of operation names measurements may distinguish.
 //
@@ -52,9 +60,19 @@ func (vocabulary Vocabulary) Names() []string {
 }
 
 // labelFor is the bounded identity of one event's measurements.
+//
+// An event that names no operation is labelled with none, rather than swept
+// into Other. The two are different facts and reading them as one is
+// misleading: Other means "an operation this was not told to distinguish",
+// and the runtime's own events -- a runtime closing, a scope opening outside
+// any named work -- have nothing to distinguish. Both are one bucket each, so
+// telling them apart costs nothing a bounded vocabulary was protecting.
 func (vocabulary Vocabulary) labelFor(event effect.RuntimeEvent) Label {
 	operation := Other
-	if vocabulary.allowed[event.Operation] {
+	switch {
+	case event.Operation == "":
+		operation = Unnamed
+	case vocabulary.allowed[event.Operation]:
 		operation = event.Operation
 	}
 	return Label{Kind: event.Kind, Status: event.Status, Operation: operation}
