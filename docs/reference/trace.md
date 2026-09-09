@@ -23,6 +23,7 @@ func (running *Running) Ended() uint64
 
 func (fibers *Fibers) Running() []Fiber
 func (fibers *Fibers) Render(now time.Time) string
+func Identity(root Span) string
 func (span Span) Age(now time.Time) time.Duration
 func (fiber Fiber) Age(now time.Time) time.Duration
 ```
@@ -71,6 +72,28 @@ fiber is running or blocked, and on what — and a **stack trace**. Neither is
 derivable from the events this runtime emits, and both would have to come from
 the runtime rather than from a reader of it. Saying so beats reporting
 "running" for a fiber that is blocked.
+
+## Naming a trace
+
+```go
+trace.Identity(root)  // "5f370d49-9187-81b2-bc29-a42ad8c814cc"
+```
+
+The runtime's span identity is a counter: enough to assemble a tree, and not
+enough to name one. It starts again at one in the next process, so "span 16"
+means a different trace in every run and in every replica — and a person
+copying an identity out of a tool, or a tool holding a selection across a
+restart, needs a name that stays the trace's own.
+
+Derived rather than stored, from a value drawn once per process, the root's
+counter and the instant it started. So the same root always gives the same
+identity — the rest of the span is not part of it, which is what lets a tool
+keep a selection while the trace it chose is still running — and two roots
+never share one.
+
+The form is a UUID, **version 8**: the version reserved for an identifier laid
+out by whoever made it. It is not random, and claiming version 4 would say it
+was.
 
 ## What a Span carries
 
