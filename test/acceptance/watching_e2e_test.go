@@ -10,6 +10,7 @@ package acceptance
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/mbauer83/effect-golang-observe/examples/watching"
@@ -151,10 +152,22 @@ func TestMeasurementsCountTheWorkAndBoundTheirOwnLabels(t *testing.T) {
 		t.Fatalf("expected the failing item and the root, got %d", unsuccessful)
 	}
 	// The runtime's own events name no operation, so they are measured under
-	// Other rather than each becoming a series of its own.
+	// Unnamed -- which is not Other: "this names no operation" and "this
+	// names one nobody declared" are different facts, and a reader who cannot
+	// tell them apart goes looking for work that does not exist.
+	held := map[string]bool{}
 	for _, label := range taken.Labels() {
-		if label.Operation == "" {
-			t.Fatalf("expected every label to name an operation or Other, got %+v", label)
+		held[label.Operation] = true
+	}
+	if !held[metrics.Unnamed] {
+		t.Fatalf("expected the runtime's own events under Unnamed, got %v", taken.Labels())
+	}
+	// And the count of labels is bounded by the vocabulary either way: the
+	// declared names, Other, and Unnamed.
+	for operation := range held {
+		if operation != metrics.Unnamed && operation != metrics.Other &&
+			!slices.Contains([]string{"restock", "item", "read-level"}, operation) {
+			t.Fatalf("expected a declared name, Other or Unnamed, got %q", operation)
 		}
 	}
 	if held := taken.Durations[succeeded]; held.Count != 2 || held.Max == 0 {

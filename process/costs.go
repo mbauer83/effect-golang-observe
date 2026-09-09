@@ -15,12 +15,9 @@ package process
 
 import (
 	"cmp"
-	"context"
 	"slices"
 	"sync"
 	"time"
-
-	"github.com/mbauer83/effect-golang/effect"
 )
 
 // Unnamed is what work outside the declared vocabulary is accounted under.
@@ -31,10 +28,12 @@ type Cost struct {
 	Name string
 	// Times is how often work under this name ran.
 	Times uint64
-	// AllocatedDuring is the bytes the process allocated while it ran, and
-	// CPUSecondsDuring the CPU time the process used. Process-wide: concurrent
-	// work is in these numbers too.
+	// AllocatedDuring is the bytes the process allocated while it ran,
+	// ObjectsDuring how many allocations that was, and CPUSecondsDuring the
+	// CPU time the process used. Process-wide: concurrent work is in these
+	// numbers too.
 	AllocatedDuring  uint64
+	ObjectsDuring    uint64
 	CPUSecondsDuring float64
 	// Elapsed is the wall-clock time the runs took together, and Longest the
 	// slowest single run.
@@ -44,6 +43,14 @@ type Cost struct {
 	// which is what makes a large AllocatedDuring readable: allocation that
 	// never provokes a collection costs nothing to collect.
 	Collections uint64
+	// Spread is the sizes of the allocations, or empty when the account was
+	// not told to keep them. The disclosed layer: a reader wants the bytes
+	// and the count first, and asks what shapes they were second.
+	Spread Spread
+	// Runs are the most recent runs of this name, newest first: the windows
+	// the figures above are the average of. An average is what a name costs
+	// and a run is what one span did, and both are wanted.
+	Runs []Run
 }
 
 // PerRun is the bytes allocated per run, which is the number worth comparing
@@ -55,30 +62,99 @@ func (cost Cost) PerRun() uint64 {
 	return cost.AllocatedDuring / cost.Times
 }
 
+// ObjectsPerRun is how many allocations a run made, and MeanObjectBytes their
+// average size.
+//
+// In Go the count is usually the more actionable of the two: an allocation is
+// a few tens of nanoseconds and a pointer for the collector to chase whatever
+// its size, so forty thousand small ones cost more than one large one holding
+// the same bytes.
+func (cost Cost) ObjectsPerRun() uint64 {
+	if cost.Times == 0 {
+		return 0
+	}
+	return cost.ObjectsDuring / cost.Times
+}
+
+func (cost Cost) MeanObjectBytes() uint64 {
+	if cost.ObjectsDuring == 0 {
+		return 0
+	}
+	return cost.AllocatedDuring / cost.ObjectsDuring
+}
+
 // Costs accounts what named work spent, over a bounded set of names.
 //
 // Bounded for the reason a metric label is: a name per request is a series per
 // request. An unlisted name is accounted under Unnamed.
 type Costs struct {
 	allowed map[string]bool
+	// sizing says whether to keep the sizes of the allocations as well as
+	// their count. Reading the histogram costs about twenty nanoseconds more
+	// than the scalars, measured -- but keeping it is a bucket set per name,
+	// and a caller that does not want the detail should not carry it.
+	sizing bool
 
 	mutex sync.Mutex
 	held  map[string]Cost
+	sizes map[string]map[float64]uint64
+	// runs are the recent windows behind each name's average, in runs.go.
+	runs map[string]*runs
 }
 
 // Accounting makes an account over the names worth distinguishing.
 func Accounting(names ...string) *Costs {
+	return accounting(false, names)
+}
+
+// Sizing is Accounting that also keeps the sizes of the allocations, so a name
+// can say whether it allocated a few large things or a great many small ones.
+//
+// A separate constructor because it carries more: a set of size classes per
+// name, and a histogram read at each end of every window. The reading is
+// nearly free -- twenty nanoseconds against the scalars -- and the keeping is
+// what a caller is choosing here.
+func Sizing(names ...string) *Costs {
+	return accounting(true, names)
+}
+
+func accounting(sizing bool, names []string) *Costs {
 	allowed := make(map[string]bool, len(names))
 	for _, name := range names {
 		if name != "" && name != Unnamed {
 			allowed[name] = true
 		}
 	}
-	return &Costs{allowed: allowed, held: map[string]Cost{}}
+	return &Costs{
+		allowed: allowed,
+		sizing:  sizing,
+		held:    map[string]Cost{},
+		sizes:   map[string]map[float64]uint64{},
+		runs:    map[string]*runs{},
+	}
+}
+
+// Sizes says whether this account keeps the sizes of the allocations.
+func (costs *Costs) Sizes() bool {
+	return costs.sizing
+}
+
+// RecordSpread adds one run's change together with the sizes its allocations
+// fell into.
+//
+// Separate from Record because only a caller that sampled the histogram at
+// both ends of the window has a spread to give, and one that did not should
+// not have to pass an empty one.
+func (costs *Costs) RecordSpread(name string, change Change, spread Spread) {
+	costs.record(name, change, spread)
 }
 
 // Record adds one run's change to a name's account.
 func (costs *Costs) Record(name string, change Change) {
+	costs.record(name, change, Spread{})
+}
+
+func (costs *Costs) record(name string, change Change, spread Spread) {
 	under := Unnamed
 	if costs.allowed[name] {
 		under = name
@@ -90,6 +166,7 @@ func (costs *Costs) Record(name string, change Change) {
 	held.Name = under
 	held.Times++
 	held.AllocatedDuring += change.AllocatedBytes
+	held.ObjectsDuring += change.AllocatedObjects
 	held.CPUSecondsDuring += change.CPUSeconds
 	held.Elapsed += change.Over
 	held.Collections += change.GCCycles
@@ -97,6 +174,27 @@ func (costs *Costs) Record(name string, change Change) {
 		held.Longest = change.Over
 	}
 	costs.held[under] = held
+
+	ring, keeping := costs.runs[under]
+	if !keeping {
+		ring = &runs{}
+		costs.runs[under] = ring
+	}
+	ring.add(Run{Ended: change.Ended, Change: change})
+
+	if !costs.sizing || spread.Total == 0 {
+		return
+	}
+	// Summed by class across runs, keyed by the class's own upper edge --
+	// Go's size classes, so nothing here decides where a boundary is.
+	classes, known := costs.sizes[under]
+	if !known {
+		classes = map[float64]uint64{}
+		costs.sizes[under] = classes
+	}
+	for _, class := range spread.Classes {
+		classes[class.AtMost] += class.Count
+	}
 }
 
 // Snapshot is the accounts as they stand, the most allocated first.
@@ -107,7 +205,11 @@ func (costs *Costs) Snapshot() []Cost {
 	costs.mutex.Lock()
 	defer costs.mutex.Unlock()
 	taken := make([]Cost, 0, len(costs.held))
-	for _, held := range costs.held {
+	for name, held := range costs.held {
+		held.Spread = spreadOf(costs.sizes[name])
+		if ring := costs.runs[name]; ring != nil {
+			held.Runs = ring.recent()
+		}
 		taken = append(taken, held)
 	}
 	slices.SortFunc(taken, func(first Cost, second Cost) int {
@@ -119,44 +221,18 @@ func (costs *Costs) Snapshot() []Cost {
 	return taken
 }
 
-// Costing measures what the process spent while an effect ran and records it
-// under a name.
-//
-// The reading is taken when the effect is interpreted and not when it is
-// described, so one description measured twice records two runs. The second
-// reading is a finalizer, so work that failed or was interrupted is accounted
-// too -- a request that allocated a hundred megabytes and then gave up is
-// exactly the one worth seeing.
-func Costing[R, E, A any](
-	costs *Costs,
-	name string,
-	fx effect.Effect[R, E, A],
-) effect.Effect[R, E, A] {
-	if costs == nil {
-		return fx
+// spreadOf reads one name's size classes out, smallest first.
+func spreadOf(classes map[float64]uint64) Spread {
+	if len(classes) == 0 {
+		return Spread{Classes: []Class{}}
 	}
-	operations := effect.For[R, E]()
-	return operations.Suspend(func() effect.Effect[R, E, A] {
-		before := Read()
-		return fx.Ensuring(effect.Release[R](func(context.Context) error {
-			costs.Record(name, Between(before, Read()))
-			return nil
-		}))
+	spread := Spread{Classes: make([]Class, 0, len(classes))}
+	for bound, count := range classes {
+		spread.Total += count
+		spread.Classes = append(spread.Classes, Class{AtMost: bound, Count: count})
+	}
+	slices.SortFunc(spread.Classes, func(first Class, second Class) int {
+		return cmp.Compare(first.AtMost, second.AtMost)
 	})
-}
-
-// Measured is Costing with a name and a span: the three things wanted together
-// whenever a stage of some work is worth accounting for separately.
-//
-//	direct.Bind(bind, process.Measured(costs, "score", scoring(notes)))
-//
-// The name is the span's, the account's key and the metric label all at once,
-// so a stage appears in a trace, in the aggregate and in the account under one
-// word -- and a caller has one place to change it.
-func Measured[R, E, A any](
-	costs *Costs,
-	name string,
-	fx effect.Effect[R, E, A],
-) effect.Effect[R, E, A] {
-	return Costing(costs, name, fx).Named(name).WithSpan(name)
+	return spread
 }

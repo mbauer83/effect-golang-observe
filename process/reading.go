@@ -32,8 +32,21 @@ type Reading struct {
 	TotalBytes uint64
 	// AllocatedBytes and FreedBytes are cumulative since the process started,
 	// so a difference between two readings is what was allocated between them.
-	AllocatedBytes uint64
-	FreedBytes     uint64
+	// AllocatedObjects counts the allocations rather than their size.
+	//
+	// The count is the number that matters in Go. A hundred kilobytes in one
+	// buffer and a hundred kilobytes in four thousand interface boxes are the
+	// same bytes and completely different problems, and only the count tells
+	// them apart.
+	//
+	// It moves over a window of microseconds, unlike the CPU counters, and it
+	// lags a little: Go accounts allocations per span and per processor and
+	// flushes those in batches, so a reading taken immediately after a burst
+	// is a per cent or two behind it. Close enough to act on, not close
+	// enough to reconcile.
+	AllocatedBytes   uint64
+	AllocatedObjects uint64
+	FreedBytes       uint64
 
 	// Goroutines is how many exist; Running, Runnable and Waiting are the
 	// scheduler's own breakdown of them.
@@ -90,6 +103,7 @@ var wanted = []string{
 	"/memory/classes/heap/stacks:bytes",
 	"/memory/classes/total:bytes",
 	"/gc/heap/allocs:bytes",
+	"/gc/heap/allocs:objects",
 	"/gc/heap/frees:bytes",
 	"/sched/goroutines:goroutines",
 	"/sched/goroutines/running:goroutines",
@@ -105,25 +119,26 @@ var wanted = []string{
 
 func reading(taken time.Time, held map[string]metrics.Value) Reading {
 	return Reading{
-		Taken:          taken,
-		HeapBytes:      whole(held, "/memory/classes/heap/objects:bytes"),
-		HeapObjects:    whole(held, "/gc/heap/objects:objects"),
-		LiveBytes:      whole(held, "/gc/heap/live:bytes"),
-		GoalBytes:      whole(held, "/gc/heap/goal:bytes"),
-		StackBytes:     whole(held, "/memory/classes/heap/stacks:bytes"),
-		TotalBytes:     whole(held, "/memory/classes/total:bytes"),
-		AllocatedBytes: whole(held, "/gc/heap/allocs:bytes"),
-		FreedBytes:     whole(held, "/gc/heap/frees:bytes"),
-		Goroutines:     whole(held, "/sched/goroutines:goroutines"),
-		Running:        whole(held, "/sched/goroutines/running:goroutines"),
-		Runnable:       whole(held, "/sched/goroutines/runnable:goroutines"),
-		Waiting:        whole(held, "/sched/goroutines/waiting:goroutines"),
-		Threads:        whole(held, "/sched/gomaxprocs:threads"),
-		CPUSeconds:     fraction(held, "/cpu/classes/total:cpu-seconds"),
-		UserCPUSeconds: fraction(held, "/cpu/classes/user:cpu-seconds"),
-		GCCPUSeconds:   fraction(held, "/cpu/classes/gc/total:cpu-seconds"),
-		IdleCPUSeconds: fraction(held, "/cpu/classes/idle:cpu-seconds"),
-		GCCycles:       whole(held, "/gc/cycles/total:gc-cycles"),
+		Taken:            taken,
+		HeapBytes:        whole(held, "/memory/classes/heap/objects:bytes"),
+		HeapObjects:      whole(held, "/gc/heap/objects:objects"),
+		LiveBytes:        whole(held, "/gc/heap/live:bytes"),
+		GoalBytes:        whole(held, "/gc/heap/goal:bytes"),
+		StackBytes:       whole(held, "/memory/classes/heap/stacks:bytes"),
+		TotalBytes:       whole(held, "/memory/classes/total:bytes"),
+		AllocatedBytes:   whole(held, "/gc/heap/allocs:bytes"),
+		AllocatedObjects: whole(held, "/gc/heap/allocs:objects"),
+		FreedBytes:       whole(held, "/gc/heap/frees:bytes"),
+		Goroutines:       whole(held, "/sched/goroutines:goroutines"),
+		Running:          whole(held, "/sched/goroutines/running:goroutines"),
+		Runnable:         whole(held, "/sched/goroutines/runnable:goroutines"),
+		Waiting:          whole(held, "/sched/goroutines/waiting:goroutines"),
+		Threads:          whole(held, "/sched/gomaxprocs:threads"),
+		CPUSeconds:       fraction(held, "/cpu/classes/total:cpu-seconds"),
+		UserCPUSeconds:   fraction(held, "/cpu/classes/user:cpu-seconds"),
+		GCCPUSeconds:     fraction(held, "/cpu/classes/gc/total:cpu-seconds"),
+		IdleCPUSeconds:   fraction(held, "/cpu/classes/idle:cpu-seconds"),
+		GCCycles:         whole(held, "/gc/cycles/total:gc-cycles"),
 	}
 }
 

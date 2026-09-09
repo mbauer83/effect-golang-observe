@@ -12,14 +12,22 @@ import "time"
 // hundred megabytes is a fact, and two hundred megabytes allocated per second
 // is a decision to look at.
 type Change struct {
-	// Over is the wall-clock time the window covered.
-	Over time.Duration
+	// Over is the wall-clock time the window covered, and Ended when the later
+	// reading was taken.
+	//
+	// Ended is what attributes a window to the work that ran in it: an average
+	// over a name says what the name costs, and only a window with a time on
+	// it says what one run of it cost.
+	Over  time.Duration
+	Ended time.Time
 
 	// AllocatedBytes and FreedBytes are what the process allocated and freed
-	// during the window, and GCCycles how many collections completed in it.
-	AllocatedBytes uint64
-	FreedBytes     uint64
-	GCCycles       uint64
+	// during the window, AllocatedObjects how many allocations that was, and
+	// GCCycles how many collections completed in it.
+	AllocatedBytes   uint64
+	AllocatedObjects uint64
+	FreedBytes       uint64
+	GCCycles         uint64
 
 	// CPUSeconds is the CPU time the process actually used during the window,
 	// summed over threads, and GCCPUSeconds the part of it the collector took.
@@ -43,13 +51,15 @@ type Change struct {
 // report of it than a zero.
 func Between(before Reading, after Reading) Change {
 	return Change{
-		Over:           after.Taken.Sub(before.Taken),
-		AllocatedBytes: since(before.AllocatedBytes, after.AllocatedBytes),
-		FreedBytes:     since(before.FreedBytes, after.FreedBytes),
-		GCCycles:       since(before.GCCycles, after.GCCycles),
-		CPUSeconds:     sinceSeconds(used(before), used(after)),
-		GCCPUSeconds:   sinceSeconds(before.GCCPUSeconds, after.GCCPUSeconds),
-		Threads:        after.Threads,
+		Over:             after.Taken.Sub(before.Taken),
+		Ended:            after.Taken,
+		AllocatedBytes:   since(before.AllocatedBytes, after.AllocatedBytes),
+		AllocatedObjects: since(before.AllocatedObjects, after.AllocatedObjects),
+		FreedBytes:       since(before.FreedBytes, after.FreedBytes),
+		GCCycles:         since(before.GCCycles, after.GCCycles),
+		CPUSeconds:       sinceSeconds(used(before), used(after)),
+		GCCPUSeconds:     sinceSeconds(before.GCCPUSeconds, after.GCCPUSeconds),
+		Threads:          after.Threads,
 	}
 }
 
@@ -82,6 +92,18 @@ func (change Change) Collecting() float64 {
 		return 0
 	}
 	return min(change.GCCPUSeconds/change.CPUSeconds, 1)
+}
+
+// MeanObjectBytes is the average size of the allocations in the window.
+//
+// The number that says which kind of allocation problem this is: a few large
+// buffers or a great many small boxes. The same bytes with a mean of forty
+// and a mean of forty thousand call for entirely different work.
+func (change Change) MeanObjectBytes() uint64 {
+	if change.AllocatedObjects == 0 {
+		return 0
+	}
+	return change.AllocatedBytes / change.AllocatedObjects
 }
 
 // AllocationRate is bytes allocated per second over the window.

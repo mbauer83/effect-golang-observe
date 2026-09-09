@@ -165,3 +165,58 @@ func TestBusyIsAShareAndNeverMoreThanOne(t *testing.T) {
 		t.Fatalf("expected a full share, got %v", collecting)
 	}
 }
+
+// The runs behind the average, and the two claims that make them worth
+// keeping: a run is attributable by its window's end, and there are never more
+// of them than the ring holds.
+func TestRecentRunsAreKeptWithTheWindowTheyEndedIn(t *testing.T) {
+	costs := process.Accounting("declared")
+	operations := effect.For[effect.Unit, string]()
+
+	before := time.Now()
+	for range 3 {
+		effect.Run(context.Background(), effect.Unit{},
+			process.Costing(costs, "declared", operations.Succeed(1)))
+	}
+	after := time.Now()
+
+	declared := costs.Snapshot()[0]
+	if len(declared.Runs) != 3 {
+		t.Fatalf("expected the three runs, got %d", len(declared.Runs))
+	}
+	// Newest first, so the run a caller is looking for is the one at hand.
+	for at, run := range declared.Runs {
+		if run.Ended.Before(before) || run.Ended.After(after) {
+			t.Fatalf("run %d ended at %v, outside %v..%v", at, run.Ended, before, after)
+		}
+		if at > 0 && run.Ended.After(declared.Runs[at-1].Ended) {
+			t.Fatalf("run %d is newer than the one before it", at)
+		}
+	}
+}
+
+func TestRecentRunsAreBounded(t *testing.T) {
+	costs := process.Accounting("declared")
+	operations := effect.For[effect.Unit, string]()
+
+	for range process.KeptRuns + 5 {
+		effect.Run(context.Background(), effect.Unit{},
+			process.Costing(costs, "declared", operations.Succeed(1)))
+	}
+
+	declared := costs.Snapshot()[0]
+	if declared.Times != uint64(process.KeptRuns+5) {
+		t.Fatalf("expected every run in the average, got %d", declared.Times)
+	}
+	if len(declared.Runs) != process.KeptRuns {
+		t.Fatalf("expected the ring to hold %d, got %d",
+			process.KeptRuns, len(declared.Runs))
+	}
+	// The ones it kept are the newest: the oldest run's end is later than the
+	// moment the earliest of the discarded runs could have ended.
+	oldest := declared.Runs[len(declared.Runs)-1].Ended
+	newest := declared.Runs[0].Ended
+	if oldest.After(newest) {
+		t.Fatalf("the ring read out of order: %v after %v", oldest, newest)
+	}
+}

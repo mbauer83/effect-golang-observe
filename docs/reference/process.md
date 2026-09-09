@@ -100,12 +100,84 @@ direct.Run(func(bind *direct.Binder[Env, Refusal]) Report {
 })
 ```
 
+## Allocation, counted and shaped
+
+In Go the **count** is usually more actionable than the weight. An allocation
+costs tens of nanoseconds and a pointer for the collector to chase whatever its
+size, so a hundred kilobytes in four thousand small boxes costs far more than
+the same bytes in one buffer — and only the count tells them apart.
+
+```go
+change.AllocatedObjects   // how many
+change.MeanObjectBytes()  // their average size
+cost.ObjectsPerRun()
+cost.MeanObjectBytes()
+```
+
+`Sizing` is `Accounting` that also keeps **which sizes** those allocations
+were, from Go's own allocation-size histogram. A separate constructor because
+it carries more, not because it costs more to read: reading the 68-bucket
+histogram measured at 311ns against 290ns for the scalars alone — twenty
+nanoseconds. What a caller is choosing is the *keeping*: a set of size classes
+per name.
+
+`Spread.Banded()` gathers the 68 classes into six — ≤64B, ≤256B, ≤1KiB, ≤4KiB,
+≤32KiB, larger — because a busy program touches nearly every class and the raw
+list is a wall rather than a disclosure. The edges are where Go's own behaviour
+changes: the tiny allocator, the size classes, and past 32KiB a large object
+straight from the heap.
+
+**Not per effect.** An effect is a description and the interpreter walks
+millions of nodes; two metric reads at 290ns each per node would cost orders of
+magnitude more than the work. A span is the granularity where the measurement
+can be cheaper than the thing measured — and even there it often is not, which
+[the web layer's own numbers](https://github.com/mbauer83/effect-golang-web/blob/main/docs/reference/web.md)
+say plainly.
+
+## The runs behind the average
+
+```go
+cost.Runs        // the recent runs of this name, newest first
+run.Ended        // when the window closed
+run.Change       // what the process did during it
+process.KeptRuns // how many of them a name keeps
+```
+
+An account is an average over every run of a name. That is the right answer to
+"which work is expensive" and the wrong one to "what did *this* span do": the
+average moves while the program runs, so a trace that ended a minute ago would
+keep changing its numbers — and a run that allocated ten times the usual amount
+is invisible in it, which is the run worth finding.
+
+So each name keeps its recent windows as well as their sum. They are
+attributed **by time**: a run's window closes inside the span it belonged to,
+so a caller holding both can say which run was which. That is the only join
+available — this package holds no spans, and Go reports no per-goroutine
+allocation for one to be keyed by.
+
+Bounded like everything else here, at `KeptRuns` per name. A name that runs
+twice a second outlives thirty-two runs in sixteen seconds, which was the first
+number tried and was not enough for a window of traces.
+
 ## Two resolution limits worth knowing
 
 **Go's CPU accounting does not move over a fast window.** A handler that
 answers in twenty microseconds reports zero CPU, because the counters advance
-in larger steps than that. The allocation counters are exact per allocation and
-do not have this problem.
+in larger steps than that.
+
+**The allocation counters lag slightly.** They do move over a window of
+microseconds, which is what makes them useful here — but Go accounts
+allocations per span and per processor and flushes those in batches, so a
+reading taken immediately after a burst is a per cent or two behind it.
+Measured at about 99% of a known 2,000 allocations. Close enough to act on, not
+close enough to reconcile.
+
+The same batching is why a **single** run of a few microseconds often reports
+zero: nothing it allocated had been flushed when its window closed, and the
+next run carries it. Over a name's runs that averages out; over one run it is a
+zero to read as "below the counter's resolution" rather than as "allocated
+nothing". A column of zeros with occasional spikes is that artefact; a rising
+line is not.
 
 **A window measures the work it wraps and nothing outside it.** Where `Costing`
 wraps a web handler, the request's codecs are outside it — see the
