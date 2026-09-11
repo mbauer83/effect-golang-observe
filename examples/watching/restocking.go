@@ -55,7 +55,7 @@ func connected(scope effect.Scope) restocking[*supplier] {
 	return scope.AcquireRelease(
 		operations.Succeed(&supplier{attempts: map[string]int{}}).Named("connect"),
 		func(*supplier) effect.Effect[effect.Unit, effect.Never, effect.Unit] {
-			return effect.Release[effect.Unit](func(context.Context) error { return nil })
+			return effect.AddFinalizer[effect.Unit](func(context.Context) error { return nil })
 		},
 	)
 }

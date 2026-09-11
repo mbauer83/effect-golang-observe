@@ -184,3 +184,34 @@ func TestAnEventThatNamesNoOperationIsNotSweptIntoOther(t *testing.T) {
 			grown, len(taken.Labels()))
 	}
 }
+
+// What the bounds are for: the error a quantile can carry.
+//
+// A bound is honest -- every measurement did fall at or below it -- and an
+// honest answer five times the truth is not worth reading. One, two and five
+// to a decade bound the overstatement at two and a half times, which is what
+// makes a per-endpoint table worth looking at.
+func TestNoBoundOverstatesAMeasurementByMoreThanTwoAndAHalf(t *testing.T) {
+	previous := time.Duration(0)
+	for _, bound := range metrics.DefaultBounds {
+		if previous > 0 && bound > previous*5/2 {
+			t.Fatalf("a measurement just over %s is reported at %s, which is %.1f times it",
+				previous, bound, float64(bound)/float64(previous))
+		}
+		previous = bound
+	}
+}
+
+// The ladder reaches far enough that a quantile is a bound rather than "at
+// least the largest bucket": work waiting on somebody else's service does
+// take tens of seconds.
+func TestTheBoundsReachWorkThatWaitsOnSomebodyElse(t *testing.T) {
+	longest := metrics.DefaultBounds[len(metrics.DefaultBounds)-1]
+
+	if longest < time.Minute {
+		t.Fatalf("the largest bound is %s, so anything slower has no bound at all", longest)
+	}
+	if first := metrics.DefaultBounds[0]; first > time.Microsecond {
+		t.Fatalf("the smallest bound is %s, so every in-process span shares one bucket", first)
+	}
+}

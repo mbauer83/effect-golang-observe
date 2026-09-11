@@ -32,7 +32,7 @@ func Costing[R, E, A any](
 	if !costs.Sizes() {
 		return operations.Suspend(func() effect.Effect[R, E, A] {
 			before := Read()
-			return fx.Ensuring(effect.Release[R](func(context.Context) error {
+			return fx.Ensuring(effect.AddFinalizer[R](func(context.Context) error {
 				costs.Record(name, Between(before, Read()))
 				return nil
 			}))
@@ -43,7 +43,7 @@ func Costing[R, E, A any](
 	// not keep the detail should not pay to gather it.
 	return operations.Suspend(func() effect.Effect[R, E, A] {
 		before, sizesBefore := Read(), ReadSizes()
-		return fx.Ensuring(effect.Release[R](func(context.Context) error {
+		return fx.Ensuring(effect.AddFinalizer[R](func(context.Context) error {
 			costs.RecordSpread(name, Between(before, Read()),
 				Spreading(sizesBefore, ReadSizes()))
 			return nil

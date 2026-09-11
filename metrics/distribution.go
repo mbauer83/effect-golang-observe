@@ -85,31 +85,50 @@ func (distribution Distribution) bound(share float64) time.Duration {
 }
 
 // DefaultBounds are the bucket bounds a collector uses when the caller states
-// none: a microsecond to ten seconds, by decades and halves.
+// none: a microsecond to a minute, three to a decade.
 //
-// Chosen from what this actually measures, twice. Bounds starting at a
+// Chosen from what this actually measures, three times. Bounds starting at a
 // millisecond put every in-process span in the first bucket; starting at a
 // hundred microseconds still did, because a span around a Ref read or a
-// handler that answers from memory takes single-digit microseconds. Seven
-// decades with two bounds each tells those apart from the ones that waited on
-// something, without pretending to more resolution than a bucketed histogram
-// has.
+// handler that answers from memory takes single-digit microseconds.
+//
+// Then one and five to a decade proved too coarse for the thing people read
+// these for: a request taking 1.1 seconds is reported at five, and a page
+// whose median is six seconds reads as ten. A bound is honest -- every
+// measurement did fall at or below it -- and an honest answer five times the
+// truth is not worth much. One, two and five bound the error at two and a
+// half times instead, for nine more buckets per label.
+//
+// It ends at a minute rather than ten seconds because work that waits on
+// somebody else's service does take a minute, and a quantile pinned to the
+// last bound says only "at least this". Beyond it Max is the answer, which is
+// exact and is what every bound above the largest measurement collapses to.
 var DefaultBounds = []time.Duration{
 	time.Microsecond,
+	2 * time.Microsecond,
 	5 * time.Microsecond,
 	10 * time.Microsecond,
+	20 * time.Microsecond,
 	50 * time.Microsecond,
 	100 * time.Microsecond,
+	200 * time.Microsecond,
 	500 * time.Microsecond,
 	time.Millisecond,
+	2 * time.Millisecond,
 	5 * time.Millisecond,
 	10 * time.Millisecond,
+	20 * time.Millisecond,
 	50 * time.Millisecond,
 	100 * time.Millisecond,
+	200 * time.Millisecond,
 	500 * time.Millisecond,
 	time.Second,
+	2 * time.Second,
 	5 * time.Second,
 	10 * time.Second,
+	20 * time.Second,
+	30 * time.Second,
+	time.Minute,
 }
 
 // bounded is a distribution being accumulated.
