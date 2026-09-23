@@ -30,7 +30,7 @@ func TestAReadingReportsMemoryAndTheSchedulersOwnBreakdown(t *testing.T) {
 		t.Fatal("expected a Go program to have allocated something")
 	}
 	// The scheduler's breakdown adds up to no more than the total: they are
-	// the same goroutines count by state.
+	// the same goroutines counted by state.
 	if count := reading.Running + reading.Runnable + reading.Waiting; count > reading.Goroutines {
 		t.Fatalf("expected the breakdown within the total, got %d of %d",
 			count, reading.Goroutines)

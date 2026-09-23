@@ -40,8 +40,8 @@ func TestOpenSpansAreKeptAndEndedOnesAreForgotten(t *testing.T) {
 }
 
 func TestOpenSpansComeBackInTheOrderTheyWereOpened(t *testing.T) {
-	// A map has no order, and a tool listing what is spans wants the oldest
-	// first: that is the one that has been spans too long.
+	// A map has no order, and a tool listing what is running wants the oldest
+	// first: that is the one that has been running too long.
 	spans := trace.NewSpans()
 	for index := range 6 {
 		spans.Observe(context.Background(),
