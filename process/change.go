@@ -21,8 +21,8 @@ type Change struct {
 	Duration time.Duration
 	EndTime  time.Time
 
-	// AllocBytes and FreedBytes are what the process allocated and freed
-	// during the window, AllocatedObjects how many allocations that was, and
+	// AllocBytes and FreeBytes are what the process allocated and freed
+	// during the window, AllocObjects how many allocations that was, and
 	// GCCycles how many collections completed in it.
 	AllocBytes   uint64
 	AllocObjects uint64

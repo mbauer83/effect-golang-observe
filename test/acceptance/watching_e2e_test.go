@@ -152,7 +152,7 @@ func TestMeasurementsCountTheWorkAndBoundTheirOwnLabels(t *testing.T) {
 		t.Fatalf("expected the failing item and the root, got %d", unsuccessful)
 	}
 	// The runtime's own events name no operation, so they are measured under
-	// Unnamed -- which is not Other: "this names no operation" and "this
+	// Anonymous -- which is not Other: "this names no operation" and "this
 	// names one nobody declared" are different facts, and a reader who cannot
 	// tell them apart goes looking for work that does not exist.
 	operations := map[string]bool{}
@@ -163,7 +163,7 @@ func TestMeasurementsCountTheWorkAndBoundTheirOwnLabels(t *testing.T) {
 		t.Fatalf("expected the runtime's own events under Unnamed, got %v", snapshot.Labels())
 	}
 	// And the count of labels is bounded by the vocabulary either way: the
-	// declared names, Other, and Unnamed.
+	// declared names, Other, and Anonymous.
 	for operation := range operations {
 		if operation != metrics.Anonymous && operation != metrics.Other &&
 			!slices.Contains([]string{"restock", "item", "read-level"}, operation) {

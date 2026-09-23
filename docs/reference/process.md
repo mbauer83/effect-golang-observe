@@ -81,7 +81,7 @@ said so.
 
 Bounded by a declared vocabulary, exactly as a
 [metric label](metrics.md) is: a name per request is a series per request, and
-an unlisted name is accounted under `Unnamed`.
+an unlisted name is accounted under `Other`.
 
 `Track` takes its first reading **when the effect is interpreted**, not when
 it is described, so one description measured twice records two runs. The second
@@ -108,7 +108,7 @@ size, so a hundred kilobytes in four thousand small boxes costs far more than
 the same bytes in one buffer — and only the count tells them apart.
 
 ```go
-change.AllocatedObjects   // how many
+change.AllocObjects       // how many
 change.MeanObjectBytes()  // their average size
 cost.ObjectsPerRun()
 cost.MeanObjectBytes()

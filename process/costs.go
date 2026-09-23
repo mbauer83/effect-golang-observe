@@ -86,7 +86,7 @@ func (cost Cost) MeanObjectBytes() uint64 {
 // Costs accounts what named work spent, over a bounded set of names.
 //
 // Bounded for the reason a metric label is: a name per request is a series per
-// request. An unlisted name is accounted under Unnamed.
+// request. An unlisted name is accounted under Other.
 type Costs struct {
 	names map[string]bool
 	// keepsSizes says whether to keep the sizes of the allocations as well as

@@ -31,7 +31,7 @@ observe/                    delivery: Fanout, Filter, NewBuffer, NewRecent
 trace/                      Span, Trace, Assemble, Identity, NewSpans, Fiber, NewFibers
 metrics/                    Vocabulary, Label, Distribution, NewCollector
 process/                    Reading, Change, Series, Sizes, Costs, Run, Track, Measure
-examples/telemetry/          a program worth watching, and the watching of it
+examples/telemetry/         a program worth watching, and the watching of it
 examples/cmd/observedemo/   the example as a runnable command
 test/unit/                  behaviour of the public API
 test/acceptance/            the example against a real runtime

@@ -30,9 +30,9 @@ type Reading struct {
 	// TotalBytes is everything the runtime has mapped, which is what an
 	// operating system's idea of the process resembles.
 	TotalBytes uint64
-	// AllocBytes and FreedBytes are cumulative since the process started,
+	// AllocBytes and FreeBytes are cumulative since the process started,
 	// so a difference between two readings is what was allocated between them.
-	// AllocatedObjects counts the allocations rather than their size.
+	// AllocObjects counts the allocations rather than their size.
 	//
 	// The count is the number that matters in Go. A hundred kilobytes in one
 	// buffer and a hundred kilobytes in four thousand interface boxes are the
