@@ -10,7 +10,6 @@ package watching
 
 import (
 	"github.com/mbauer83/effect-golang/effect"
-	"github.com/mbauer83/effect-golang/experimental/direct"
 )
 
 // Held is work in flight, and the release that lets it finish.
@@ -30,7 +29,7 @@ type Held struct {
 // before it waits, and this waits for all of them -- which is what makes a
 // live view something a program can assert on rather than observe by luck.
 func Holding(count int) restocking[Held] {
-	return direct.Run(func(do *direct.Do[effect.Unit, Refusal]) Held {
+	return effect.Gen(func(do *effect.Do[effect.Unit, Refusal]) Held {
 		operations := effect.For[effect.Unit, Refusal]()
 		release := do.Await(operations.WidenError(effect.NewDeferred[effect.Unit, Refusal, effect.Unit]()))
 
@@ -67,7 +66,7 @@ func waiting(
 
 // Finish releases the held work and waits for every fiber.
 func Finish(held Held) restocking[[]int] {
-	return direct.Run(func(do *direct.Do[effect.Unit, Refusal]) []int {
+	return effect.Gen(func(do *effect.Do[effect.Unit, Refusal]) []int {
 		operations := effect.For[effect.Unit, Refusal]()
 		do.Await(operations.WidenError(held.Release.Succeed[effect.Unit](effect.Unit{})))
 		finished := make([]int, 0, len(held.Fibers))

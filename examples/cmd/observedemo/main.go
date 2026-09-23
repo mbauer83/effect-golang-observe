@@ -16,7 +16,6 @@ import (
 	"github.com/mbauer83/effect-golang-observe/examples/watching"
 	"github.com/mbauer83/effect-golang-observe/metrics"
 	"github.com/mbauer83/effect-golang/effect"
-	"github.com/mbauer83/effect-golang/experimental/direct"
 )
 
 func main() {
@@ -62,7 +61,7 @@ func main() {
 // it: sampling from a second Run would find the work already interrupted,
 // which is the first thing this got wrong.
 func reportLive(runtime *effect.Runtime, watch *watching.Watch) {
-	program := direct.Run(func(do *direct.Do[effect.Unit, watching.Refusal]) []int {
+	program := effect.Gen(func(do *effect.Do[effect.Unit, watching.Refusal]) []int {
 		held := do.Await(watching.Holding(3))
 		do.Await(looking(func() { showLive(watch) }))
 		return do.Await(watching.Finish(held))

@@ -94,7 +94,7 @@ caller may pass one rather than branch around it.
 whenever a stage of some work deserves its own account.
 
 ```go
-direct.Run(func(do *direct.Do[Env, Refusal]) Report {
+effect.Gen(func(do *effect.Do[Env, Refusal]) Report {
     held := do.Await(process.Measured(costs, "read", store.All()))
     return do.Await(process.Measured(costs, "digest", digesting(held)))
 })

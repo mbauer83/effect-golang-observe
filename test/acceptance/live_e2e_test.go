@@ -14,7 +14,6 @@ import (
 	"github.com/mbauer83/effect-golang-observe/examples/watching"
 	"github.com/mbauer83/effect-golang-observe/trace"
 	"github.com/mbauer83/effect-golang/effect"
-	"github.com/mbauer83/effect-golang/experimental/direct"
 )
 
 func TestWhatIsRunningIsAnsweredWhileItIsRunning(t *testing.T) {
@@ -39,7 +38,7 @@ func TestWhatIsRunningIsAnsweredWhileItIsRunning(t *testing.T) {
 		spans  []trace.Span
 		owned  effect.LiveWork
 	}
-	program := direct.Run(func(do *direct.Do[effect.Unit, watching.Refusal]) []int {
+	program := effect.Gen(func(do *effect.Do[effect.Unit, watching.Refusal]) []int {
 		held := do.Await(watching.Holding(3))
 		do.Await(looking(func() {
 			sampled.fibers = watch.Fibers.Running()

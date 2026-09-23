@@ -13,7 +13,6 @@ import (
 	"strings"
 
 	"github.com/mbauer83/effect-golang/effect"
-	"github.com/mbauer83/effect-golang/experimental/direct"
 )
 
 // Refusal is the program's own failure. The transport of telemetry has nothing
@@ -37,7 +36,7 @@ type restocking[A any] = effect.Effect[effect.Unit, Refusal, A]
 // for.
 func Restock(items ...string) restocking[[]int] {
 	return effect.Scoped(func(scope effect.Scope) restocking[[]int] {
-		return direct.Run(func(do *direct.Do[effect.Unit, Refusal]) []int {
+		return effect.Gen(func(do *effect.Do[effect.Unit, Refusal]) []int {
 			supplier := do.Await(connected(scope))
 			counted := make([]int, 0, len(items))
 			for _, item := range items {
