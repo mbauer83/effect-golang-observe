@@ -39,14 +39,14 @@ func TestWhatIsRunningIsAnsweredWhileItIsRunning(t *testing.T) {
 		spans  []trace.Span
 		owned  effect.LiveWork
 	}
-	program := direct.Run(func(bind *direct.Binder[effect.Unit, watching.Refusal]) []int {
-		held := direct.Bind(bind, watching.Holding(3))
-		direct.Bind(bind, looking(func() {
+	program := direct.Run(func(do *direct.Do[effect.Unit, watching.Refusal]) []int {
+		held := do.Await(watching.Holding(3))
+		do.Await(looking(func() {
 			sampled.fibers = watch.Fibers.Running()
 			sampled.spans = watch.Running.Open()
 			sampled.owned = runtime.LiveWork()
 		}))
-		return direct.Bind(bind, watching.Finish(held))
+		return do.Await(watching.Finish(held))
 	})
 
 	finished, done := runtime.Run(context.Background(), effect.Unit{}, program).Value()
@@ -94,5 +94,5 @@ func looking(look func()) effect.Effect[effect.Unit, watching.Refusal, effect.Un
 	return effect.From(func(context.Context, effect.Unit) effect.Exit[watching.Refusal, effect.Unit] {
 		look()
 		return effect.ExitSuccess[watching.Refusal](effect.Unit{})
-	}).Named("look")
+	}).WithName("look")
 }

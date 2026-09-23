@@ -54,7 +54,7 @@ func Costing[R, E, A any](
 // Measured is Costing with a name and a span: the three things wanted together
 // whenever a stage of some work is worth accounting for separately.
 //
-//	direct.Bind(bind, process.Measured(costs, "score", scoring(notes)))
+//	do.Await(process.Measured(costs, "score", scoring(notes)))
 //
 // The name is the span's, the account's key and the metric label all at once,
 // so a stage appears in a trace, in the aggregate and in the account under one
@@ -64,5 +64,5 @@ func Measured[R, E, A any](
 	name string,
 	fx effect.Effect[R, E, A],
 ) effect.Effect[R, E, A] {
-	return Costing(costs, name, fx).Named(name).WithSpan(name)
+	return Costing(costs, name, fx).WithName(name).WithSpan(name)
 }

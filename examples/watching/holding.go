@@ -30,23 +30,21 @@ type Held struct {
 // before it waits, and this waits for all of them -- which is what makes a
 // live view something a program can assert on rather than observe by luck.
 func Holding(count int) restocking[Held] {
-	return direct.Run(func(bind *direct.Binder[effect.Unit, Refusal]) Held {
+	return direct.Run(func(do *direct.Do[effect.Unit, Refusal]) Held {
 		operations := effect.For[effect.Unit, Refusal]()
-		release := direct.Bind(bind,
-			operations.WidenError(effect.NewDeferred[effect.Unit, Refusal, effect.Unit]()))
+		release := do.Await(operations.WidenError(effect.NewDeferred[effect.Unit, Refusal, effect.Unit]()))
 
 		held := Held{Release: release, Fibers: make([]effect.Fiber[Refusal, int], 0, count)}
 		begun := make([]effect.Deferred[Refusal, effect.Unit], 0, count)
 		for index := range count {
-			signal := direct.Bind(bind,
-				operations.WidenError(effect.NewDeferred[effect.Unit, Refusal, effect.Unit]()))
+			signal := do.Await(operations.WidenError(effect.NewDeferred[effect.Unit, Refusal, effect.Unit]()))
 			begun = append(begun, signal)
 			held.Fibers = append(held.Fibers,
-				direct.Bind(bind, operations.WidenError(
+				do.Await(operations.WidenError(
 					effect.Fork[effect.Unit](waiting(signal, release, index)))))
 		}
 		for _, signal := range begun {
-			direct.Bind(bind, signal.Await[effect.Unit]())
+			do.Await(signal.Await[effect.Unit]())
 		}
 		return held
 	}).WithSpan("hold")
@@ -63,18 +61,18 @@ func waiting(
 		FlatMap(func(bool) restocking[int] {
 			return release.Await[effect.Unit]().Map(func(effect.Unit) int { return index })
 		}).
-		Named("await-release").
+		WithName("await-release").
 		WithSpan("holding")
 }
 
 // Finish releases the held work and waits for every fiber.
 func Finish(held Held) restocking[[]int] {
-	return direct.Run(func(bind *direct.Binder[effect.Unit, Refusal]) []int {
+	return direct.Run(func(do *direct.Do[effect.Unit, Refusal]) []int {
 		operations := effect.For[effect.Unit, Refusal]()
-		direct.Bind(bind, operations.WidenError(held.Release.Succeed[effect.Unit](effect.Unit{})))
+		do.Await(operations.WidenError(held.Release.Succeed[effect.Unit](effect.Unit{})))
 		finished := make([]int, 0, len(held.Fibers))
 		for _, fiber := range held.Fibers {
-			finished = append(finished, direct.Bind(bind, fiber.Join[effect.Unit]()))
+			finished = append(finished, do.Await(fiber.Join[effect.Unit]()))
 		}
 		return finished
 	}).WithSpan("finish")

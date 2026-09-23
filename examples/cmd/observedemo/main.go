@@ -62,10 +62,10 @@ func main() {
 // it: sampling from a second Run would find the work already interrupted,
 // which is the first thing this got wrong.
 func reportLive(runtime *effect.Runtime, watch *watching.Watch) {
-	program := direct.Run(func(bind *direct.Binder[effect.Unit, watching.Refusal]) []int {
-		held := direct.Bind(bind, watching.Holding(3))
-		direct.Bind(bind, looking(func() { showLive(watch) }))
-		return direct.Bind(bind, watching.Finish(held))
+	program := direct.Run(func(do *direct.Do[effect.Unit, watching.Refusal]) []int {
+		held := do.Await(watching.Holding(3))
+		do.Await(looking(func() { showLive(watch) }))
+		return do.Await(watching.Finish(held))
 	})
 	if _, done := runtime.Run(context.Background(), effect.Unit{}, program).Value(); !done {
 		fail(errors.New("the held work did not finish"))
@@ -91,7 +91,7 @@ func looking(look func()) effect.Effect[effect.Unit, watching.Refusal, effect.Un
 	return effect.From(func(context.Context, effect.Unit) effect.Exit[watching.Refusal, effect.Unit] {
 		look()
 		return effect.ExitSuccess[watching.Refusal](effect.Unit{})
-	}).Named("look")
+	}).WithName("look")
 }
 
 func reportTrace(watch *watching.Watch) {

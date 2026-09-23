@@ -37,11 +37,11 @@ type restocking[A any] = effect.Effect[effect.Unit, Refusal, A]
 // for.
 func Restock(items ...string) restocking[[]int] {
 	return effect.Scoped(func(scope effect.Scope) restocking[[]int] {
-		return direct.Run(func(bind *direct.Binder[effect.Unit, Refusal]) []int {
-			supplier := direct.Bind(bind, connected(scope))
+		return direct.Run(func(do *direct.Do[effect.Unit, Refusal]) []int {
+			supplier := do.Await(connected(scope))
 			counted := make([]int, 0, len(items))
 			for _, item := range items {
-				counted = append(counted, direct.Bind(bind, restocked(supplier, item)))
+				counted = append(counted, do.Await(restocked(supplier, item)))
 			}
 			return counted
 		})
@@ -53,7 +53,7 @@ func Restock(items ...string) restocking[[]int] {
 func connected(scope effect.Scope) restocking[*supplier] {
 	operations := effect.For[effect.Unit, Refusal]()
 	return scope.AcquireRelease(
-		operations.Succeed(&supplier{attempts: map[string]int{}}).Named("connect"),
+		operations.Succeed(&supplier{attempts: map[string]int{}}).WithName("connect"),
 		func(*supplier) effect.Effect[effect.Unit, effect.Never, effect.Unit] {
 			return effect.AddFinalizer[effect.Unit](func(context.Context) error { return nil })
 		},
@@ -64,7 +64,7 @@ func connected(scope effect.Scope) restocking[*supplier] {
 // aggregate has a measurement per item.
 func restocked(from *supplier, item string) restocking[int] {
 	return reading(from, item).RetryN(3).
-		Named("read-level").
+		WithName("read-level").
 		WithSpan("item")
 }
 

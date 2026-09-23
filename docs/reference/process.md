@@ -94,9 +94,9 @@ caller may pass one rather than branch around it.
 whenever a stage of some work deserves its own account.
 
 ```go
-direct.Run(func(bind *direct.Binder[Env, Refusal]) Report {
-    held := direct.Bind(bind, process.Measured(costs, "read", store.All()))
-    return direct.Bind(bind, process.Measured(costs, "digest", digesting(held)))
+direct.Run(func(do *direct.Do[Env, Refusal]) Report {
+    held := do.Await(process.Measured(costs, "read", store.All()))
+    return do.Await(process.Measured(costs, "digest", digesting(held)))
 })
 ```
 
