@@ -13,7 +13,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/mbauer83/effect-golang-observe/examples/watching"
+	"github.com/mbauer83/effect-golang-observe/examples/telemetry"
 	"github.com/mbauer83/effect-golang-observe/metrics"
 	"github.com/mbauer83/effect-golang/effect"
 )
@@ -21,7 +21,7 @@ import (
 func main() {
 	// The operations worth their own measurements, named up front: that is
 	// what keeps the number of series fixed before the program runs.
-	watch, err := watching.NewWatch(256, "restock", "item", "read-level")
+	watch, err := telemetry.NewWatch(256, "restock", "item", "read-level")
 	if err != nil {
 		fail(err)
 	}
@@ -34,7 +34,7 @@ func main() {
 	}
 
 	exit := runtime.Run(context.Background(), effect.Unit{},
-		watching.Restock("lamp", "pallet", "unstocked-widget"))
+		telemetry.Restock("lamp", "pallet", "unstocked-widget"))
 	fmt.Printf("restocking: %s\n", outcome(exit))
 
 	// Sampled while work is in flight, because that is the only time the
@@ -60,11 +60,11 @@ func main() {
 // One interpretation, because a forked fiber belongs to the scope that forked
 // it: sampling from a second Run would find the work already interrupted,
 // which is the first thing this got wrong.
-func reportLive(runtime *effect.Runtime, watch *watching.Watch) {
-	program := effect.Gen(func(do *effect.Do[effect.Unit, watching.Refusal]) []int {
-		gate := do.Await(watching.Hold(3))
+func reportLive(runtime *effect.Runtime, watch *telemetry.Watch) {
+	program := effect.Gen(func(do *effect.Do[effect.Unit, telemetry.Refusal]) []int {
+		gate := do.Await(telemetry.Hold(3))
 		do.Await(sample(func() { showLive(watch) }))
-		return do.Await(watching.Finish(gate))
+		return do.Await(telemetry.Finish(gate))
 	})
 	if _, done := runtime.Run(context.Background(), effect.Unit{}, program).Value(); !done {
 		fail(errors.New("the held work did not finish"))
@@ -74,7 +74,7 @@ func reportLive(runtime *effect.Runtime, watch *watching.Watch) {
 }
 
 // showLive is the sampling itself: what is running, at the instant it is asked.
-func showLive(watch *watching.Watch) {
+func showLive(watch *telemetry.Watch) {
 	now := time.Now()
 	fmt.Printf("\nwhat is running, sampled while it is (%d fiber(s), %d span(s) open)\n",
 		watch.Fibers.Count(), watch.Spans.Count())
@@ -86,14 +86,14 @@ func showLive(watch *watching.Watch) {
 
 // sample performs one side effect between two stages, which is what sampling
 // a running program is.
-func sample(look func()) effect.Effect[effect.Unit, watching.Refusal, effect.Unit] {
-	return effect.From(func(context.Context, effect.Unit) effect.Exit[watching.Refusal, effect.Unit] {
+func sample(look func()) effect.Effect[effect.Unit, telemetry.Refusal, effect.Unit] {
+	return effect.From(func(context.Context, effect.Unit) effect.Exit[telemetry.Refusal, effect.Unit] {
 		look()
-		return effect.ExitSuccess[watching.Refusal](effect.Unit{})
+		return effect.ExitSuccess[telemetry.Refusal](effect.Unit{})
 	}).WithName("look")
 }
 
-func reportTrace(watch *watching.Watch) {
+func reportTrace(watch *telemetry.Watch) {
 	trace := watch.Trace()
 	fmt.Printf("\nwhat it did (%d span(s), %d event(s) outside every span)\n",
 		len(trace.Spans()), len(trace.Loose))
@@ -106,7 +106,7 @@ func reportTrace(watch *watching.Watch) {
 	}
 }
 
-func reportMeasurements(watch *watching.Watch) {
+func reportMeasurements(watch *telemetry.Watch) {
 	snapshot := watch.Collector.Snapshot()
 	fmt.Println("\nhow much of it there was")
 	for _, label := range snapshot.Labels() {

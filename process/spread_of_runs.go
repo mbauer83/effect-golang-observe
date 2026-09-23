@@ -26,7 +26,7 @@ import (
 //	cost.BytesAt(0.99)  // what the worst one in a hundred allocates
 func (cost Cost) BytesAt(share float64) uint64 {
 	return atShare(cost.Runs, share, func(run Run) uint64 {
-		return run.Change.AllocatedBytes
+		return run.Change.AllocBytes
 	})
 }
 
@@ -38,7 +38,7 @@ func (cost Cost) BytesAt(share float64) uint64 {
 // slower than one making a few large ones of the same weight.
 func (cost Cost) ObjectsAt(share float64) uint64 {
 	return atShare(cost.Runs, share, func(run Run) uint64 {
-		return run.Change.AllocatedObjects
+		return run.Change.AllocObjects
 	})
 }
 

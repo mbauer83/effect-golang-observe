@@ -118,7 +118,7 @@ func NewCostsWithSizes(names ...string) *Costs {
 	return newCosts(true, names)
 }
 
-func newCosts(sizing bool, names []string) *Costs {
+func newCosts(keepsSizes bool, names []string) *Costs {
 	nameSet := make(map[string]bool, len(names))
 	for _, name := range names {
 		if name != "" && name != Other {
@@ -127,7 +127,7 @@ func newCosts(sizing bool, names []string) *Costs {
 	}
 	return &Costs{
 		names:      nameSet,
-		keepsSizes: sizing,
+		keepsSizes: keepsSizes,
 		totals:     map[string]Cost{},
 		sizes:      map[string]map[float64]uint64{},
 		runs:       map[string]*runs{},
@@ -165,8 +165,8 @@ func (costs *Costs) record(name string, change Change, spread Spread) {
 	cost := costs.totals[key]
 	cost.Name = key
 	cost.Times++
-	cost.BytesDuring += change.AllocatedBytes
-	cost.ObjectsDuring += change.AllocatedObjects
+	cost.BytesDuring += change.AllocBytes
+	cost.ObjectsDuring += change.AllocObjects
 	cost.CPUSecondsDuring += change.CPUSeconds
 	cost.Duration += change.Duration
 	cost.Collections += change.GCCycles

@@ -1,4 +1,4 @@
-// Package watching is a program's own telemetry, assembled, and a program
+// Package telemetry is a program's own telemetry, assembled, and a program
 // worth pointing it at.
 //
 // The three packages answer three questions and a program usually wants all
@@ -7,7 +7,7 @@
 // them looks like -- and the assembly is worth showing because the order
 // matters: the window and the aggregate are behind a queue, and the live span
 // tracker is not.
-package watching
+package telemetry
 
 import (
 	"github.com/mbauer83/effect-golang-observe/metrics"

@@ -11,7 +11,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/mbauer83/effect-golang-observe/examples/watching"
+	"github.com/mbauer83/effect-golang-observe/examples/telemetry"
 	"github.com/mbauer83/effect-golang-observe/trace"
 	"github.com/mbauer83/effect-golang/effect"
 )
@@ -21,7 +21,7 @@ func TestWhatIsRunningIsAnsweredWhileItIsRunning(t *testing.T) {
 	// fiber is forgotten when it completes and a span when it ends, so this
 	// samples from inside one interpretation, between forking the work and
 	// letting it go.
-	watch, err := watching.NewWatch(256, "hold", "holding")
+	watch, err := telemetry.NewWatch(256, "hold", "holding")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,14 +38,14 @@ func TestWhatIsRunningIsAnsweredWhileItIsRunning(t *testing.T) {
 		spans  []trace.Span
 		work   effect.LiveWork
 	}
-	program := effect.Gen(func(do *effect.Do[effect.Unit, watching.Refusal]) []int {
-		gate := do.Await(watching.Hold(3))
+	program := effect.Gen(func(do *effect.Do[effect.Unit, telemetry.Refusal]) []int {
+		gate := do.Await(telemetry.Hold(3))
 		do.Await(sample(func() {
 			snapshot.fibers = watch.Fibers.Tree()
 			snapshot.spans = watch.Spans.Open()
 			snapshot.work = runtime.LiveWork()
 		}))
-		return do.Await(watching.Finish(gate))
+		return do.Await(telemetry.Finish(gate))
 	})
 
 	finished, done := runtime.Run(context.Background(), effect.Unit{}, program).Value()
@@ -89,9 +89,9 @@ func TestWhatIsRunningIsAnsweredWhileItIsRunning(t *testing.T) {
 
 // sample performs one side effect between two stages, which is what sampling
 // a running program is.
-func sample(look func()) effect.Effect[effect.Unit, watching.Refusal, effect.Unit] {
-	return effect.From(func(context.Context, effect.Unit) effect.Exit[watching.Refusal, effect.Unit] {
+func sample(look func()) effect.Effect[effect.Unit, telemetry.Refusal, effect.Unit] {
+	return effect.From(func(context.Context, effect.Unit) effect.Exit[telemetry.Refusal, effect.Unit] {
 		look()
-		return effect.ExitSuccess[watching.Refusal](effect.Unit{})
+		return effect.ExitSuccess[telemetry.Refusal](effect.Unit{})
 	}).WithName("look")
 }

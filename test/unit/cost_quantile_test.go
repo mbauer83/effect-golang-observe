@@ -71,9 +71,9 @@ func costOf(allocations ...uint64) process.Cost {
 		runs = append(runs, process.Run{
 			EndTime: time.Now(),
 			Change: process.Change{
-				AllocatedBytes:   bytes,
-				AllocatedObjects: bytes / 100,
-				Duration:         time.Duration(at) * time.Millisecond,
+				AllocBytes:   bytes,
+				AllocObjects: bytes / 100,
+				Duration:     time.Duration(at) * time.Millisecond,
 			},
 		})
 	}

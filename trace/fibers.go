@@ -53,15 +53,15 @@ func (fiber Fiber) Age(now time.Time) time.Duration {
 
 // Fibers is an observer that tracks the fibers currently running.
 type Fibers struct {
-	mutex   sync.Mutex
-	running map[uint64]Fiber
-	starts  uint64
-	ends    uint64
+	mutex  sync.Mutex
+	live   map[uint64]Fiber
+	starts uint64
+	ends   uint64
 }
 
 // NewFibers makes an observer over the running fibers.
 func NewFibers() *Fibers {
-	return &Fibers{running: map[uint64]Fiber{}}
+	return &Fibers{live: map[uint64]Fiber{}}
 }
 
 // Observe records a fiber starting or completing and ignores everything else.
@@ -77,7 +77,7 @@ func (fibers *Fibers) Observe(_ context.Context, event effect.RuntimeEvent) {
 func (fibers *Fibers) begin(event effect.RuntimeEvent) {
 	fibers.mutex.Lock()
 	defer fibers.mutex.Unlock()
-	fibers.running[event.FiberID] = Fiber{
+	fibers.live[event.FiberID] = Fiber{
 		ID:        event.FiberID,
 		ParentID:  event.ParentFiber,
 		Operation: event.Operation,
@@ -90,10 +90,10 @@ func (fibers *Fibers) begin(event effect.RuntimeEvent) {
 func (fibers *Fibers) finish(event effect.RuntimeEvent) {
 	fibers.mutex.Lock()
 	defer fibers.mutex.Unlock()
-	if _, known := fibers.running[event.FiberID]; !known {
+	if _, known := fibers.live[event.FiberID]; !known {
 		return
 	}
-	delete(fibers.running, event.FiberID)
+	delete(fibers.live, event.FiberID)
 	fibers.ends++
 }
 
@@ -108,9 +108,9 @@ func (fibers *Fibers) Tree() []Fiber {
 	defer fibers.mutex.Unlock()
 
 	children := map[uint64][]uint64{}
-	roots := make([]uint64, 0, len(fibers.running))
-	for identity, fiber := range fibers.running {
-		if _, forked := fibers.running[fiber.ParentID]; forked && fiber.ParentID != identity {
+	roots := make([]uint64, 0, len(fibers.live))
+	for identity, fiber := range fibers.live {
+		if _, forked := fibers.live[fiber.ParentID]; forked && fiber.ParentID != identity {
 			children[fiber.ParentID] = append(children[fiber.ParentID], identity)
 			continue
 		}
@@ -125,7 +125,7 @@ func (fibers *Fibers) Tree() []Fiber {
 }
 
 func (fibers *Fibers) subtree(identity uint64, children map[uint64][]uint64) Fiber {
-	fiber := fibers.running[identity]
+	fiber := fibers.live[identity]
 	childIDs := children[identity]
 	fibers.sortOldestFirst(childIDs)
 	fiber.Children = make([]Fiber, 0, len(childIDs))
@@ -144,8 +144,8 @@ func (fibers *Fibers) subtree(identity uint64, children map[uint64][]uint64) Fib
 // fibers would be unreadable. The identity breaks a tie, as it does for spans.
 func (fibers *Fibers) sortOldestFirst(identities []uint64) {
 	slices.SortStableFunc(identities, func(first uint64, second uint64) int {
-		if order := fibers.running[first].StartTime.Compare(
-			fibers.running[second].StartTime); order != 0 {
+		if order := fibers.live[first].StartTime.Compare(
+			fibers.live[second].StartTime); order != 0 {
 			return order
 		}
 		return cmp.Compare(first, second)
@@ -156,7 +156,7 @@ func (fibers *Fibers) sortOldestFirst(identities []uint64) {
 func (fibers *Fibers) Count() int {
 	fibers.mutex.Lock()
 	defer fibers.mutex.Unlock()
-	return len(fibers.running)
+	return len(fibers.live)
 }
 
 // Starts and Ends are how many fibers this has seen begin and complete.

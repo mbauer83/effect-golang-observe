@@ -1,4 +1,4 @@
-package watching
+package telemetry
 
 // A program worth watching.
 //

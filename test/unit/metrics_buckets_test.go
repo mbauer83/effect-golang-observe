@@ -28,7 +28,7 @@ func TestBucketsAreCumulativeAndSayWhenTheBoundsAreTooNarrow(t *testing.T) {
 	}
 
 	distribution := collector.Snapshot().Durations[metrics.Label{
-		Kind: effect.EventSpanEnded, Operation: metrics.Unnamed,
+		Kind: effect.EventSpanEnded, Operation: metrics.Anonymous,
 	}]
 	if distribution.Count != 3 {
 		t.Fatalf("expected all three counted, got %d", distribution.Count)
@@ -63,7 +63,7 @@ func TestBoundsAreOrderedAndDeduplicatedWhateverTheCallerGave(t *testing.T) {
 	})
 
 	distribution := collector.Snapshot().Durations[metrics.Label{
-		Kind: effect.EventSpanEnded, Operation: metrics.Unnamed,
+		Kind: effect.EventSpanEnded, Operation: metrics.Anonymous,
 	}]
 	if len(distribution.Buckets) != 2 {
 		t.Fatalf("expected the repeat collapsed, got %+v", distribution.Buckets)
@@ -90,7 +90,7 @@ func TestAQuantileIsNeverCoarserThanTheLongestMeasurement(t *testing.T) {
 	}
 
 	distribution := collector.Snapshot().Durations[metrics.Label{
-		Kind: effect.EventSpanEnded, Operation: metrics.Unnamed,
+		Kind: effect.EventSpanEnded, Operation: metrics.Anonymous,
 	}]
 	if distribution.Max != 3*time.Microsecond {
 		t.Fatalf("expected the longest measurement, got %v", distribution.Max)
@@ -110,7 +110,7 @@ func TestAQuantileIsNeverCoarserThanTheLongestMeasurement(t *testing.T) {
 		Kind: effect.EventSpanEnded, Duration: 900 * time.Microsecond,
 	})
 	wider := collector.Snapshot().Durations[metrics.Label{
-		Kind: effect.EventSpanEnded, Operation: metrics.Unnamed,
+		Kind: effect.EventSpanEnded, Operation: metrics.Anonymous,
 	}]
 	if median := wider.Quantile(0.5); median != 100*time.Microsecond {
 		t.Fatalf("expected the bucket bound where it is the tighter one, got %v", median)
@@ -132,7 +132,7 @@ func TestTheDefaultBucketsResolveWhatARuntimeActuallyBrackets(t *testing.T) {
 	}
 
 	distribution := collector.Snapshot().Durations[metrics.Label{
-		Kind: effect.EventSpanEnded, Operation: metrics.Unnamed,
+		Kind: effect.EventSpanEnded, Operation: metrics.Anonymous,
 	}]
 	if first, second := distribution.Quantile(0.5), distribution.Quantile(1); first == second {
 		t.Fatalf("expected the buckets to tell these apart, got %v for both", first)
@@ -163,7 +163,7 @@ func TestAnEventThatNamesNoOperationIsNotSweptIntoOther(t *testing.T) {
 	for label, count := range snapshot.Counts {
 		under[label.Operation] += count
 	}
-	if under[metrics.Unnamed] != 1 {
+	if under[metrics.Anonymous] != 1 {
 		t.Fatalf("expected the unnamed event under Unnamed, got %v", under)
 	}
 	if under[metrics.Other] != 1 {

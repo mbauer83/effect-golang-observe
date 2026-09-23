@@ -154,8 +154,8 @@ func byStart(first Span, second Span) int {
 func mergeAttributes(attributes []slog.Attr, more []slog.Attr) []slog.Attr {
 	union := append([]slog.Attr{}, attributes...)
 	for _, attribute := range more {
-		if slices.ContainsFunc(attributes, func(existing slog.Attr) bool {
-			return existing.Equal(attribute)
+		if slices.ContainsFunc(attributes, func(original slog.Attr) bool {
+			return original.Equal(attribute)
 		}) {
 			continue
 		}

@@ -21,13 +21,13 @@ type Change struct {
 	Duration time.Duration
 	EndTime  time.Time
 
-	// AllocatedBytes and FreedBytes are what the process allocated and freed
+	// AllocBytes and FreedBytes are what the process allocated and freed
 	// during the window, AllocatedObjects how many allocations that was, and
 	// GCCycles how many collections completed in it.
-	AllocatedBytes   uint64
-	AllocatedObjects uint64
-	FreedBytes       uint64
-	GCCycles         uint64
+	AllocBytes   uint64
+	AllocObjects uint64
+	FreeBytes    uint64
+	GCCycles     uint64
 
 	// CPUSeconds is the CPU time the process actually used during the window,
 	// summed over threads, and GCCPUSeconds the part of it the collector took.
@@ -51,15 +51,15 @@ type Change struct {
 // report of it than a zero.
 func Diff(before Reading, after Reading) Change {
 	return Change{
-		Duration:         after.Time.Sub(before.Time),
-		EndTime:          after.Time,
-		AllocatedBytes:   delta(before.AllocatedBytes, after.AllocatedBytes),
-		AllocatedObjects: delta(before.AllocatedObjects, after.AllocatedObjects),
-		FreedBytes:       delta(before.FreedBytes, after.FreedBytes),
-		GCCycles:         delta(before.GCCycles, after.GCCycles),
-		CPUSeconds:       deltaSeconds(workSeconds(before), workSeconds(after)),
-		GCCPUSeconds:     deltaSeconds(before.GCCPUSeconds, after.GCCPUSeconds),
-		Threads:          after.Threads,
+		Duration:     after.Time.Sub(before.Time),
+		EndTime:      after.Time,
+		AllocBytes:   delta(before.AllocBytes, after.AllocBytes),
+		AllocObjects: delta(before.AllocObjects, after.AllocObjects),
+		FreeBytes:    delta(before.FreeBytes, after.FreeBytes),
+		GCCycles:     delta(before.GCCycles, after.GCCycles),
+		CPUSeconds:   deltaSeconds(workSeconds(before), workSeconds(after)),
+		GCCPUSeconds: deltaSeconds(before.GCCPUSeconds, after.GCCPUSeconds),
+		Threads:      after.Threads,
 	}
 }
 
@@ -100,10 +100,10 @@ func (change Change) GCShare() float64 {
 // buffers or a great many small boxes. The same bytes with a mean of forty
 // and a mean of forty thousand call for entirely different work.
 func (change Change) MeanObjectBytes() uint64 {
-	if change.AllocatedObjects == 0 {
+	if change.AllocObjects == 0 {
 		return 0
 	}
-	return change.AllocatedBytes / change.AllocatedObjects
+	return change.AllocBytes / change.AllocObjects
 }
 
 // AllocationRate is bytes allocated per second over the window.
@@ -111,7 +111,7 @@ func (change Change) AllocationRate() float64 {
 	if change.Duration <= 0 {
 		return 0
 	}
-	return float64(change.AllocatedBytes) / change.Duration.Seconds()
+	return float64(change.AllocBytes) / change.Duration.Seconds()
 }
 
 func delta(before uint64, after uint64) uint64 {

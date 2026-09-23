@@ -13,7 +13,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/mbauer83/effect-golang-observe/examples/watching"
+	"github.com/mbauer83/effect-golang-observe/examples/telemetry"
 	"github.com/mbauer83/effect-golang-observe/metrics"
 	"github.com/mbauer83/effect-golang-observe/trace"
 	"github.com/mbauer83/effect-golang/effect"
@@ -21,9 +21,9 @@ import (
 
 // runRestock runs the example program under the example's own telemetry and
 // closes the runtime, which is what drains the queue.
-func runRestock(t *testing.T, items ...string) (*watching.Watch, effect.Exit[watching.Refusal, []int]) {
+func runRestock(t *testing.T, items ...string) (*telemetry.Watch, effect.Exit[telemetry.Refusal, []int]) {
 	t.Helper()
-	watch, err := watching.NewWatch(256, "restock", "item", "read-level")
+	watch, err := telemetry.NewWatch(256, "restock", "item", "read-level")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +35,7 @@ func runRestock(t *testing.T, items ...string) (*watching.Watch, effect.Exit[wat
 		t.Fatal(err)
 	}
 
-	exit := runtime.Run(context.Background(), effect.Unit{}, watching.Restock(items...))
+	exit := runtime.Run(context.Background(), effect.Unit{}, telemetry.Restock(items...))
 	if live := runtime.LiveWork(); !live.IsEmpty() {
 		t.Fatalf("the program left work behind: %#v", live)
 	}
@@ -116,7 +116,7 @@ func TestNothingIsLeftOpenWhenTheProgramHasFinished(t *testing.T) {
 func TestClosingTheRuntimeIsWhatDeliversAQueuedObserversEvents(t *testing.T) {
 	// The Flusher wiring, end to end: the window is behind a queue, so what
 	// it holds before the runtime closes is not what it holds after.
-	watch, err := watching.NewWatch(256, "restock")
+	watch, err := telemetry.NewWatch(256, "restock")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +124,7 @@ func TestClosingTheRuntimeIsWhatDeliversAQueuedObserversEvents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtime.Run(context.Background(), effect.Unit{}, watching.Restock("lamp"))
+	runtime.Run(context.Background(), effect.Unit{}, telemetry.Restock("lamp"))
 
 	if cleanup := runtime.Close(context.Background()); !cleanup.IsEmpty() {
 		t.Fatalf("closing reported %s", cleanup)
@@ -159,13 +159,13 @@ func TestMeasurementsCountTheWorkAndBoundTheirOwnLabels(t *testing.T) {
 	for _, label := range snapshot.Labels() {
 		operations[label.Operation] = true
 	}
-	if !operations[metrics.Unnamed] {
+	if !operations[metrics.Anonymous] {
 		t.Fatalf("expected the runtime's own events under Unnamed, got %v", snapshot.Labels())
 	}
 	// And the count of labels is bounded by the vocabulary either way: the
 	// declared names, Other, and Unnamed.
 	for operation := range operations {
-		if operation != metrics.Unnamed && operation != metrics.Other &&
+		if operation != metrics.Anonymous && operation != metrics.Other &&
 			!slices.Contains([]string{"restock", "item", "read-level"}, operation) {
 			t.Fatalf("expected a declared name, Other or Unnamed, got %q", operation)
 		}

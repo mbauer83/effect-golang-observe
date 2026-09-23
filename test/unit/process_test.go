@@ -26,7 +26,7 @@ func TestAReadingReportsMemoryAndTheSchedulersOwnBreakdown(t *testing.T) {
 	if reading.Threads == 0 {
 		t.Fatal("expected GOMAXPROCS to be at least one")
 	}
-	if reading.AllocatedBytes == 0 {
+	if reading.AllocBytes == 0 {
 		t.Fatal("expected a Go program to have allocated something")
 	}
 	// The scheduler's breakdown adds up to no more than the total: they are
@@ -55,7 +55,7 @@ func TestAChangeIsWhatWasSpentBetweenTwoReadings(t *testing.T) {
 	after := process.Read()
 
 	change := process.Diff(before, after)
-	if change.AllocatedBytes == 0 {
+	if change.AllocBytes == 0 {
 		t.Fatal("expected the allocations to show in the window")
 	}
 	if change.Duration <= 0 {
@@ -82,17 +82,17 @@ func TestCountersGivenBackwardsReportNothingRatherThanWrapping(t *testing.T) {
 	// hold identical counters, and subtracting equal numbers gives zero
 	// whether or not anything guards the wrap.
 	before := process.Reading{
-		Time:           time.Unix(100, 0),
-		AllocatedBytes: 1 << 30,
-		FreedBytes:     1 << 20,
-		GCCycles:       9,
-		CPUSeconds:     8,
-		GCCPUSeconds:   2,
+		Time:         time.Unix(100, 0),
+		AllocBytes:   1 << 30,
+		FreeBytes:    1 << 20,
+		GCCycles:     9,
+		CPUSeconds:   8,
+		GCCPUSeconds: 2,
 	}
 	after := process.Reading{Time: time.Unix(200, 0), Threads: 4}
 
 	change := process.Diff(before, after)
-	if change.AllocatedBytes != 0 || change.FreedBytes != 0 || change.GCCycles != 0 {
+	if change.AllocBytes != 0 || change.FreeBytes != 0 || change.GCCycles != 0 {
 		t.Fatalf("expected no wrap in the whole numbers, got %+v", change)
 	}
 	if change.CPUSeconds != 0 || change.GCCPUSeconds != 0 {
@@ -101,7 +101,7 @@ func TestCountersGivenBackwardsReportNothingRatherThanWrapping(t *testing.T) {
 	// And forwards it is the plain difference, so the guard has not eaten a
 	// real measurement.
 	forwards := process.Diff(after, before)
-	if forwards.AllocatedBytes != 1<<30 || forwards.CPUSeconds != 8 {
+	if forwards.AllocBytes != 1<<30 || forwards.CPUSeconds != 8 {
 		t.Fatalf("expected the difference, got %+v", forwards)
 	}
 }

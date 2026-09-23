@@ -47,13 +47,13 @@ func (trace Trace) Spans() []Span {
 }
 
 func (trace Trace) spansWhere(keep func(Span) bool) []Span {
-	found := []Span{}
+	spans := []Span{}
 	trace.Walk(func(span Span, _ int) {
 		if keep(span) {
-			found = append(found, span)
+			spans = append(spans, span)
 		}
 	})
-	return found
+	return spans
 }
 
 // Render is the trace as a stable tree of lines.

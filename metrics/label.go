@@ -17,12 +17,12 @@ import (
 // away.
 const Other = "other"
 
-// Unnamed is what an event that names no operation is measured under.
+// Anonymous is what an event that names no operation is measured under.
 //
 // Distinct from Other, because "this names no operation" and "this names one I
 // was not told to distinguish" are different facts, and a reader who cannot
 // tell them apart will go looking for work that does not exist.
-const Unnamed = ""
+const Anonymous = ""
 
 // Vocabulary is the set of operation names measurements may distinguish.
 //
@@ -71,7 +71,7 @@ func (vocabulary Vocabulary) labelFor(event effect.RuntimeEvent) Label {
 	operation := Other
 	switch {
 	case event.Operation == "":
-		operation = Unnamed
+		operation = Anonymous
 	case vocabulary.operations[event.Operation]:
 		operation = event.Operation
 	}

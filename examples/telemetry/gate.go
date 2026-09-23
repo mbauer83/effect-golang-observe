@@ -1,4 +1,4 @@
-package watching
+package telemetry
 
 // Work that is still running when somebody looks.
 //

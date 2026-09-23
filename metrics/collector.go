@@ -110,18 +110,18 @@ type Snapshot struct {
 
 // Labels are every label the snapshot holds, in a stable order.
 func (snapshot Snapshot) Labels() []Label {
-	seen := map[Label]bool{}
+	union := map[Label]bool{}
 	for label := range snapshot.Counts {
-		seen[label] = true
+		union[label] = true
 	}
 	for label := range snapshot.Durations {
-		seen[label] = true
+		union[label] = true
 	}
 	for label := range snapshot.Delays {
-		seen[label] = true
+		union[label] = true
 	}
-	labels := make([]Label, 0, len(seen))
-	for label := range seen {
+	labels := make([]Label, 0, len(union))
+	for label := range union {
 		labels = append(labels, label)
 	}
 	slices.SortFunc(labels, Label.Compare)

@@ -32,9 +32,9 @@ func TestAllocationsAreCountedAsWellAsWeighed(t *testing.T) {
 	// after a burst is a little behind it. Measured here at about 99 per
 	// cent, which is close enough to act on and not close enough to assert
 	// exactly.
-	if change.AllocatedObjects < 1800 {
+	if change.AllocObjects < 1800 {
 		t.Fatalf("expected most of the two thousand allocations, got %d",
-			change.AllocatedObjects)
+			change.AllocObjects)
 	}
 	// The mean is what says which kind of problem this is. Two thousand
 	// forty-eight-byte slices average well under a kilobyte.

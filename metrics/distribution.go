@@ -185,7 +185,7 @@ func sortBoundaries(bounds []time.Duration) []time.Duration {
 	if len(bounds) == 0 {
 		return slices.Clone(DefaultBoundaries)
 	}
-	sorted := slices.Clone(bounds)
-	slices.Sort(sorted)
-	return slices.Compact(sorted)
+	boundaries := slices.Clone(bounds)
+	slices.Sort(boundaries)
+	return slices.Compact(boundaries)
 }
