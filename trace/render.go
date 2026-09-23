@@ -32,13 +32,13 @@ func walk(span Span, depth int, visit func(Span, int)) {
 // The first thing to ask of a program that stopped responding, which is why it
 // is a question the trace answers rather than a walk every caller writes.
 func (trace Trace) Open() []Span {
-	return trace.spansWhere(Span.Open)
+	return trace.spansWhere(Span.IsOpen)
 }
 
-// Failed are the spans that ended in a typed failure, a defect or an
+// Unsuccessful are the spans that ended in a typed failure, a defect or an
 // interruption, at any depth.
-func (trace Trace) Failed() []Span {
-	return trace.spansWhere(Span.Failed)
+func (trace Trace) Unsuccessful() []Span {
+	return trace.spansWhere(Span.IsUnsuccessful)
 }
 
 // Spans is every span in the trace, parents before children.
@@ -64,16 +64,16 @@ func (trace Trace) spansWhere(keep func(Span) bool) []Span {
 // fields answer directly, which is the rule the runtime's own cause rendering
 // follows.
 func (trace Trace) Render() string {
-	var rendered strings.Builder
+	var text strings.Builder
 	for _, root := range trace.Roots {
-		renderSpan(&rendered, root, 0)
+		renderSpan(&text, root, 0)
 	}
 	if len(trace.Loose) > 0 {
-		rendered.WriteString("outside every span: ")
-		rendered.WriteString(strconv.Itoa(len(trace.Loose)))
-		rendered.WriteString(" event(s)\n")
+		text.WriteString("outside every span: ")
+		text.WriteString(strconv.Itoa(len(trace.Loose)))
+		text.WriteString(" event(s)\n")
 	}
-	return rendered.String()
+	return text.String()
 }
 
 func renderSpan(into *strings.Builder, span Span, depth int) {
@@ -115,32 +115,32 @@ func takeEvent(span Span, events int, children int) bool {
 	if events == len(span.Events) {
 		return false
 	}
-	return !span.Events[events].Timestamp.After(span.Children[children].Started)
+	return !span.Events[events].Timestamp.After(span.Children[children].StartTime)
 }
 
 func describe(span Span) string {
-	named := span.Name
-	if named == "" {
-		named = "(unnamed)"
+	name := span.Name
+	if name == "" {
+		name = "(unnamed)"
 	}
-	if span.Open() {
-		return named + " open"
+	if span.IsOpen() {
+		return name + " open"
 	}
-	return named + " " + span.Duration.String() + " " + statusOf(span.Status)
+	return name + " " + span.Duration.String() + " " + statusOf(span.Status)
 }
 
 func describeEvent(event effect.RuntimeEvent) string {
-	described := string(event.Kind)
+	text := string(event.Kind)
 	if event.Operation != "" {
-		described += " " + event.Operation
+		text += " " + event.Operation
 	}
 	if event.Status != effect.EventStatusNone {
-		described += " " + statusOf(event.Status)
+		text += " " + statusOf(event.Status)
 	}
 	if event.Attempt > 0 {
-		described += " attempt " + strconv.FormatUint(event.Attempt, 10)
+		text += " attempt " + strconv.FormatUint(event.Attempt, 10)
 	}
-	return described
+	return text
 }
 
 // statusOf names a status, including the one the runtime spells as the empty

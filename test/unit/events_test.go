@@ -36,13 +36,13 @@ func spanEnded(
 	parent uint64,
 	name string,
 	offset time.Duration,
-	took time.Duration,
+	duration time.Duration,
 	status effect.EventStatus,
 ) effect.RuntimeEvent {
 	return effect.RuntimeEvent{
 		Kind:      effect.EventSpanEnded,
 		Timestamp: at(offset),
-		Duration:  took,
+		Duration:  duration,
 		Operation: name,
 		SpanID:    id,
 		ParentID:  parent,
@@ -50,11 +50,11 @@ func spanEnded(
 	}
 }
 
-func within(id uint64, kind effect.EventKind, name string) effect.RuntimeEvent {
+func eventIn(id uint64, kind effect.EventKind, name string) effect.RuntimeEvent {
 	return effect.RuntimeEvent{Kind: kind, Timestamp: at(0), Operation: name, SpanID: id}
 }
 
-func attributed(event effect.RuntimeEvent, attributes ...slog.Attr) effect.RuntimeEvent {
+func withAttributes(event effect.RuntimeEvent, attributes ...slog.Attr) effect.RuntimeEvent {
 	event.Attributes = attributes
 	return event
 }
@@ -62,16 +62,16 @@ func attributed(event effect.RuntimeEvent, attributes ...slog.Attr) effect.Runti
 // operationsOf names the operations of a sequence of events, which is what a
 // test comparing order actually wants to read in a failure message.
 func operationsOf(events []effect.RuntimeEvent) []string {
-	named := make([]string, 0, len(events))
+	names := make([]string, 0, len(events))
 	for _, event := range events {
-		named = append(named, event.Operation)
+		names = append(names, event.Operation)
 	}
-	return named
+	return names
 }
 
-// earlier puts an event at a stated offset from the origin, for the tests that
+// backdate puts an event at a stated offset from the origin, for the tests that
 // are about when things happened rather than what they were.
-func earlier(event effect.RuntimeEvent, offset time.Duration) effect.RuntimeEvent {
+func backdate(event effect.RuntimeEvent, offset time.Duration) effect.RuntimeEvent {
 	event.Timestamp = at(offset)
 	return event
 }

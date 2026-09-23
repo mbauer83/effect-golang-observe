@@ -17,16 +17,16 @@ import (
 
 func TestAllocationsAreCountedAsWellAsWeighed(t *testing.T) {
 	before := process.Read()
-	held := make([][]byte, 0, 2000)
+	buffers := make([][]byte, 0, 2000)
 	for range 2000 {
-		held = append(held, make([]byte, 48))
+		buffers = append(buffers, make([]byte, 48))
 	}
-	if len(held) != 2000 {
+	if len(buffers) != 2000 {
 		t.Fatal("the allocation was optimised away, which makes this test vacuous")
 	}
 	after := process.Read()
 
-	change := process.Between(before, after)
+	change := process.Diff(before, after)
 	// Most of them, not all: Go accounts allocations per span and per
 	// processor and flushes those in batches, so a reading taken immediately
 	// after a burst is a little behind it. Measured here at about 99 per
@@ -58,7 +58,7 @@ func TestTheSpreadSaysWhichSizesTheAllocationsWere(t *testing.T) {
 	}
 	after := process.ReadSizes()
 
-	spread := process.Spreading(before, after)
+	spread := process.DiffSizes(before, after)
 	if spread.Total < 2500 {
 		t.Fatalf("expected most of the allocations counted, got %d", spread.Total)
 	}
@@ -99,9 +99,9 @@ func TestSpreadingTwoReadingsThatDoNotMatchReportsNothing(t *testing.T) {
 	// A caller comparing readings from different processes, or a Go release
 	// that changed its size classes: nothing rather than a subtraction of
 	// unrelated buckets.
-	spread := process.Spreading(
-		process.Sizes{Bounds: []float64{1, 2}, Counts: []uint64{1}},
-		process.Sizes{Bounds: []float64{1, 2, 3}, Counts: []uint64{1, 2}})
+	spread := process.DiffSizes(
+		process.Sizes{Boundaries: []float64{1, 2}, Counts: []uint64{1}},
+		process.Sizes{Boundaries: []float64{1, 2, 3}, Counts: []uint64{1, 2}})
 	if spread.Total != 0 || len(spread.Classes) != 0 {
 		t.Fatalf("expected nothing from mismatched readings, got %+v", spread)
 	}
@@ -114,37 +114,37 @@ func TestAnAccountKeepsTheSizesOnlyWhenAskedTo(t *testing.T) {
 	// Reading the histogram is nearly free; keeping it is a set of classes
 	// per name, and a caller that does not want the detail should not carry
 	// it.
-	allocating := effect.From(func(context.Context, effect.Unit) effect.Exit[string, int] {
-		held := make([][]byte, 0, 500)
+	work := effect.From(func(context.Context, effect.Unit) effect.Exit[string, int] {
+		buffers := make([][]byte, 0, 500)
 		for range 500 {
-			held = append(held, make([]byte, 64))
+			buffers = append(buffers, make([]byte, 64))
 		}
-		return effect.ExitSuccess[string](len(held))
+		return effect.ExitSuccess[string](len(buffers))
 	})
 
-	plain := process.Accounting("work")
-	if plain.Sizes() {
+	plain := process.NewCosts("work")
+	if plain.KeepsSizes() {
 		t.Error("expected a plain account to keep no sizes")
 	}
-	effect.Run(context.Background(), effect.Unit{}, process.Costing(plain, "work", allocating))
-	if held := plain.Snapshot()[0]; held.Spread.Total != 0 {
-		t.Fatalf("expected no spread from a plain account, got %+v", held.Spread)
+	effect.Run(context.Background(), effect.Unit{}, process.Track(plain, "work", work))
+	if cost := plain.Snapshot()[0]; cost.Spread.Total != 0 {
+		t.Fatalf("expected no spread from a plain account, got %+v", cost.Spread)
 	}
 
-	sizing := process.Sizing("work")
-	if !sizing.Sizes() {
+	sizing := process.NewCostsWithSizes("work")
+	if !sizing.KeepsSizes() {
 		t.Error("expected a sizing account to say so")
 	}
-	effect.Run(context.Background(), effect.Unit{}, process.Costing(sizing, "work", allocating))
-	held := sizing.Snapshot()[0]
-	if held.Spread.Total == 0 {
-		t.Fatalf("expected the sizes kept, got %+v", held.Spread)
+	effect.Run(context.Background(), effect.Unit{}, process.Track(sizing, "work", work))
+	cost := sizing.Snapshot()[0]
+	if cost.Spread.Total == 0 {
+		t.Fatalf("expected the sizes kept, got %+v", cost.Spread)
 	}
-	if held.ObjectsPerRun() == 0 {
-		t.Fatalf("expected the allocations counted per run, got %+v", held)
+	if cost.ObjectsPerRun() == 0 {
+		t.Fatalf("expected the allocations counted per run, got %+v", cost)
 	}
-	if held.MeanObjectBytes() == 0 || held.MeanObjectBytes() > 4096 {
-		t.Fatalf("expected a small mean, got %d", held.MeanObjectBytes())
+	if cost.MeanObjectBytes() == 0 || cost.MeanObjectBytes() > 4096 {
+		t.Fatalf("expected a small mean, got %d", cost.MeanObjectBytes())
 	}
 }
 
@@ -165,47 +165,47 @@ func TestBandsGatherTheClassesIntoSomethingReadable(t *testing.T) {
 		t.Fatal("the allocations were optimised away, which makes this test vacuous")
 	}
 
-	spread := process.Spreading(before, process.ReadSizes())
-	banded := spread.Banded()
+	spread := process.DiffSizes(before, process.ReadSizes())
+	coarse := spread.Bands()
 
-	if len(banded.Classes) > 6 {
-		t.Fatalf("expected a handful of bands, got %d", len(banded.Classes))
+	if len(coarse.Classes) > 6 {
+		t.Fatalf("expected a handful of bands, got %d", len(coarse.Classes))
 	}
 	// Never more bands than classes, and in practice far fewer: how many
 	// fewer depends on what the process happened to allocate, so the claim
 	// worth making is the bound.
-	if len(banded.Classes) > len(spread.Classes) {
+	if len(coarse.Classes) > len(spread.Classes) {
 		t.Fatalf("expected no more bands than classes, got %d against %d",
-			len(banded.Classes), len(spread.Classes))
+			len(coarse.Classes), len(spread.Classes))
 	}
 	// Nothing is lost: the bands hold every allocation the classes did.
-	counted := uint64(0)
-	for _, band := range banded.Classes {
-		counted += band.Count
+	total := uint64(0)
+	for _, band := range coarse.Classes {
+		total += band.Count
 	}
-	if counted != spread.Total {
-		t.Fatalf("expected every allocation banded, got %d of %d", counted, spread.Total)
+	if total != spread.Total {
+		t.Fatalf("expected every allocation banded, got %d of %d", total, spread.Total)
 	}
-	if banded.Total != spread.Total {
-		t.Fatalf("expected the total kept, got %d against %d", banded.Total, spread.Total)
+	if coarse.Total != spread.Total {
+		t.Fatalf("expected the total kept, got %d against %d", coarse.Total, spread.Total)
 	}
 	// The tiny ones dominate, and the half-megabyte ones are past the last
 	// bounded band.
-	largest, _ := banded.Largest()
+	largest, _ := coarse.Largest()
 	if largest.AtMost > 64 {
 		t.Fatalf("expected the smallest band to hold the most, got %+v", largest)
 	}
-	widest := banded.Classes[len(banded.Classes)-1]
+	widest := coarse.Classes[len(coarse.Classes)-1]
 	if !math.IsInf(widest.AtMost, 1) {
 		t.Fatalf("expected the half-megabyte allocations past every band, got %+v", widest)
 	}
 	// Ascending, and banding nothing is nothing.
-	for index := 1; index < len(banded.Classes); index++ {
-		if banded.Classes[index].AtMost <= banded.Classes[index-1].AtMost {
-			t.Fatalf("expected the bands ascending, got %+v", banded.Classes)
+	for index := 1; index < len(coarse.Classes); index++ {
+		if coarse.Classes[index].AtMost <= coarse.Classes[index-1].AtMost {
+			t.Fatalf("expected the bands ascending, got %+v", coarse.Classes)
 		}
 	}
-	if empty := (process.Spread{}).Banded(); len(empty.Classes) != 0 {
+	if empty := (process.Spread{}).Bands(); len(empty.Classes) != 0 {
 		t.Fatalf("expected nothing from nothing, got %+v", empty)
 	}
 }

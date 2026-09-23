@@ -17,7 +17,7 @@ func TestAnUndeclaredOperationCannotGrowTheNumberOfSeries(t *testing.T) {
 	// The rule the runtime states and this exists to keep: never label by an
 	// unbounded value. A thousand distinct operation names must produce the
 	// same number of labels as one.
-	collector := metrics.Collect(metrics.Naming("load"))
+	collector := metrics.NewCollector(metrics.NewVocabulary("load"))
 	background := context.Background()
 
 	for index := range 1000 {
@@ -35,13 +35,13 @@ func TestAnUndeclaredOperationCannotGrowTheNumberOfSeries(t *testing.T) {
 		Duration:  time.Millisecond,
 	})
 
-	taken := collector.Snapshot()
-	labels := taken.Labels()
+	snapshot := collector.Snapshot()
+	labels := snapshot.Labels()
 	if len(labels) != 2 {
 		t.Fatalf("expected the declared name and Other, got %v", labels)
 	}
 	// Every measurement is still counted; only the labelling is bounded.
-	if total := taken.Total(effect.EventSpanEnded); total != 1001 {
+	if total := snapshot.Total(effect.EventSpanEnded); total != 1001 {
 		t.Fatalf("expected every event counted, got %d", total)
 	}
 	other := metrics.Label{
@@ -49,28 +49,28 @@ func TestAnUndeclaredOperationCannotGrowTheNumberOfSeries(t *testing.T) {
 		Status:    effect.EventStatusSuccess,
 		Operation: metrics.Other,
 	}
-	if counted := taken.Counts[other]; counted != 1000 {
-		t.Fatalf("expected the undeclared ones under Other, got %d", counted)
+	if count := snapshot.Counts[other]; count != 1000 {
+		t.Fatalf("expected the undeclared ones under Other, got %d", count)
 	}
 }
 
 func TestNamingNothingLabelsByKindAndStatusAlone(t *testing.T) {
 	// The cheapest useful aggregate, and where a program with no opinion
 	// should start.
-	collector := metrics.Collect(metrics.Naming())
+	collector := metrics.NewCollector(metrics.NewVocabulary())
 	collector.Observe(context.Background(), effect.RuntimeEvent{
 		Kind: effect.EventFiberCompleted, Operation: "anything",
 		Status: effect.EventStatusDefect,
 	})
 
-	taken := collector.Snapshot()
-	if len(taken.Labels()) != 1 {
-		t.Fatalf("expected one label, got %v", taken.Labels())
+	snapshot := collector.Snapshot()
+	if len(snapshot.Labels()) != 1 {
+		t.Fatalf("expected one label, got %v", snapshot.Labels())
 	}
-	if taken.Labels()[0].Operation != metrics.Other {
-		t.Fatalf("expected everything under Other, got %v", taken.Labels()[0])
+	if snapshot.Labels()[0].Operation != metrics.Other {
+		t.Fatalf("expected everything under Other, got %v", snapshot.Labels()[0])
 	}
-	if unsuccessful := taken.Unsuccessful(effect.EventFiberCompleted); unsuccessful != 1 {
+	if unsuccessful := snapshot.Unsuccessful(effect.EventFiberCompleted); unsuccessful != 1 {
 		t.Fatalf("expected the defect counted as unsuccessful, got %d", unsuccessful)
 	}
 }
@@ -79,7 +79,7 @@ func TestOnlyWhatAnEventCarriesIsMeasured(t *testing.T) {
 	// A started event has no duration. Recording a zero for it would put a
 	// measurement in the histogram that nothing measured, and every quantile
 	// would then be a lie about how fast the work was.
-	collector := metrics.Collect(metrics.Naming("work"))
+	collector := metrics.NewCollector(metrics.NewVocabulary("work"))
 	background := context.Background()
 
 	collector.Observe(background, effect.RuntimeEvent{
@@ -94,21 +94,21 @@ func TestOnlyWhatAnEventCarriesIsMeasured(t *testing.T) {
 		Status: effect.EventStatusFailure, Delay: 20 * time.Millisecond,
 	})
 
-	taken := collector.Snapshot()
+	snapshot := collector.Snapshot()
 	started := metrics.Label{Kind: effect.EventSpanStarted, Operation: "work"}
-	if _, measured := taken.Durations[started]; measured {
+	if _, measured := snapshot.Durations[started]; measured {
 		t.Error("expected no duration measured for an event that carried none")
 	}
 	ended := metrics.Label{
 		Kind: effect.EventSpanEnded, Status: effect.EventStatusSuccess, Operation: "work",
 	}
-	if held := taken.Durations[ended]; held.Count != 1 || held.Max != 4*time.Millisecond {
-		t.Fatalf("unexpected duration: %+v", held)
+	if distribution := snapshot.Durations[ended]; distribution.Count != 1 || distribution.Max != 4*time.Millisecond {
+		t.Fatalf("unexpected duration: %+v", distribution)
 	}
 	retried := metrics.Label{
 		Kind: effect.EventRetryScheduled, Status: effect.EventStatusFailure, Operation: "work",
 	}
-	if held := taken.Delays[retried]; held.Count != 1 || held.Max != 20*time.Millisecond {
-		t.Fatalf("unexpected delay: %+v", held)
+	if distribution := snapshot.Delays[retried]; distribution.Count != 1 || distribution.Max != 20*time.Millisecond {
+		t.Fatalf("unexpected delay: %+v", distribution)
 	}
 }

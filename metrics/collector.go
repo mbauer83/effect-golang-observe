@@ -18,24 +18,24 @@ import (
 // number of buckets. Nothing about the traffic can grow it.
 type Collector struct {
 	vocabulary Vocabulary
-	bounds     []time.Duration
+	boundaries []time.Duration
 
 	mutex     sync.Mutex
 	counts    map[Label]uint64
-	durations map[Label]*bounded
-	delays    map[Label]*bounded
+	durations map[Label]*histogram
+	delays    map[Label]*histogram
 }
 
-// Collect makes a collector over a declared vocabulary.
+// NewCollector makes a collector over a declared vocabulary.
 //
 // The bounds are the duration buckets; stating none takes DefaultBounds.
-func Collect(vocabulary Vocabulary, bounds ...time.Duration) *Collector {
+func NewCollector(vocabulary Vocabulary, bounds ...time.Duration) *Collector {
 	return &Collector{
 		vocabulary: vocabulary,
-		bounds:     sortedBounds(bounds),
+		boundaries: sortBoundaries(bounds),
 		counts:     map[Label]uint64{},
-		durations:  map[Label]*bounded{},
-		delays:     map[Label]*bounded{},
+		durations:  map[Label]*histogram{},
+		delays:     map[Label]*histogram{},
 	}
 }
 
@@ -51,23 +51,23 @@ func (collector *Collector) Observe(_ context.Context, event effect.RuntimeEvent
 	defer collector.mutex.Unlock()
 	collector.counts[label]++
 	if event.Duration > 0 {
-		collector.accumulating(collector.durations, label).add(event.Duration)
+		collector.histogramFor(collector.durations, label).add(event.Duration)
 	}
 	if event.Delay > 0 {
-		collector.accumulating(collector.delays, label).add(event.Delay)
+		collector.histogramFor(collector.delays, label).add(event.Delay)
 	}
 }
 
-func (collector *Collector) accumulating(
-	held map[Label]*bounded,
+func (collector *Collector) histogramFor(
+	histograms map[Label]*histogram,
 	label Label,
-) *bounded {
-	accumulating, known := held[label]
+) *histogram {
+	histogram, known := histograms[label]
 	if !known {
-		accumulating = newBounded(collector.bounds)
-		held[label] = accumulating
+		histogram = newHistogram(collector.boundaries)
+		histograms[label] = histogram
 	}
-	return accumulating
+	return histogram
 }
 
 // Snapshot is the measurements as they stand.
@@ -79,21 +79,21 @@ func (collector *Collector) Snapshot() Snapshot {
 	collector.mutex.Lock()
 	defer collector.mutex.Unlock()
 
-	taken := Snapshot{
+	snapshot := Snapshot{
 		Counts:    make(map[Label]uint64, len(collector.counts)),
 		Durations: make(map[Label]Distribution, len(collector.durations)),
 		Delays:    make(map[Label]Distribution, len(collector.delays)),
 	}
 	for label, count := range collector.counts {
-		taken.Counts[label] = count
+		snapshot.Counts[label] = count
 	}
-	for label, accumulating := range collector.durations {
-		taken.Durations[label] = accumulating.snapshot()
+	for label, histogram := range collector.durations {
+		snapshot.Durations[label] = histogram.snapshot()
 	}
-	for label, accumulating := range collector.delays {
-		taken.Delays[label] = accumulating.snapshot()
+	for label, histogram := range collector.delays {
+		snapshot.Delays[label] = histogram.snapshot()
 	}
-	return taken
+	return snapshot
 }
 
 // Snapshot is one reading of the measurements.
@@ -131,19 +131,19 @@ func (snapshot Snapshot) Labels() []Label {
 // Total is how many events carried the kind, whatever their status or
 // operation -- the count a caller usually wants first.
 func (snapshot Snapshot) Total(kind effect.EventKind) uint64 {
-	counted := uint64(0)
+	total := uint64(0)
 	for label, count := range snapshot.Counts {
 		if label.Kind == kind {
-			counted += count
+			total += count
 		}
 	}
-	return counted
+	return total
 }
 
 // Unsuccessful is how many events of the kind ended in a typed failure, a
 // defect or an interruption.
 func (snapshot Snapshot) Unsuccessful(kind effect.EventKind) uint64 {
-	counted := uint64(0)
+	total := uint64(0)
 	for label, count := range snapshot.Counts {
 		if label.Kind != kind {
 			continue
@@ -151,8 +151,8 @@ func (snapshot Snapshot) Unsuccessful(kind effect.EventKind) uint64 {
 		switch label.Status {
 		case effect.EventStatusFailure, effect.EventStatusDefect,
 			effect.EventStatusInterrupted:
-			counted += count
+			total += count
 		}
 	}
-	return counted
+	return total
 }

@@ -32,8 +32,8 @@ const sizeHistogram = "/gc/heap/allocs-by-size:bytes"
 // what the process has ever done; the difference between two says what it did
 // in between.
 type Sizes struct {
-	Bounds []float64
-	Counts []uint64
+	Boundaries []float64
+	Counts     []uint64
 }
 
 // ReadSizes takes one reading of the histogram.
@@ -43,10 +43,10 @@ func ReadSizes() Sizes {
 	if samples[0].Value.Kind() != metrics.KindFloat64Histogram {
 		return Sizes{}
 	}
-	held := samples[0].Value.Float64Histogram()
+	histogram := samples[0].Value.Float64Histogram()
 	return Sizes{
-		Bounds: slices.Clone(held.Buckets),
-		Counts: slices.Clone(held.Counts),
+		Boundaries: slices.Clone(histogram.Buckets),
+		Counts:     slices.Clone(histogram.Counts),
 	}
 }
 
@@ -74,24 +74,24 @@ func (class Class) Share(total uint64) float64 {
 	return float64(class.Count) / float64(total)
 }
 
-// Spreading is the sizes of the allocations between two readings.
+// DiffSizes is the sizes of the allocations between two readings.
 //
 // Only the classes that saw something are returned. Sixty-eight buckets of
 // which four are non-zero is a table nobody can read, and the empty ones say
 // nothing a reader did not already know.
-func Spreading(before Sizes, after Sizes) Spread {
+func DiffSizes(before Sizes, after Sizes) Spread {
 	if len(before.Counts) != len(after.Counts) || len(after.Counts) == 0 {
 		return Spread{Classes: []Class{}}
 	}
 	spread := Spread{Classes: make([]Class, 0, 8)}
 	for index := range after.Counts {
-		count := since(before.Counts[index], after.Counts[index])
+		count := delta(before.Counts[index], after.Counts[index])
 		if count == 0 {
 			continue
 		}
 		spread.Total += count
 		spread.Classes = append(spread.Classes,
-			Class{AtMost: boundOf(after.Bounds, index), Count: count})
+			Class{AtMost: boundOf(after.Boundaries, index), Count: count})
 	}
 	return spread
 }
@@ -139,9 +139,9 @@ func (spread Spread) Largest() (Class, bool) {
 // large object allocated straight from the heap.
 var bands = []float64{64, 256, 1 << 10, 1 << 12, 1 << 15}
 
-// Banded gathers the spread into the bands above, keeping only those that saw
+// Bands gathers the spread into the bands above, keeping only those that saw
 // something.
-func (spread Spread) Banded() Spread {
+func (spread Spread) Bands() Spread {
 	if len(spread.Classes) == 0 {
 		return Spread{Classes: []Class{}}
 	}
@@ -150,7 +150,7 @@ func (spread Spread) Banded() Spread {
 		counts[bandOf(class.AtMost)] += class.Count
 	}
 
-	banded := Spread{Classes: make([]Class, 0, len(counts)), Total: spread.Total}
+	coarse := Spread{Classes: make([]Class, 0, len(counts)), Total: spread.Total}
 	for index, count := range counts {
 		if count == 0 {
 			continue
@@ -159,9 +159,9 @@ func (spread Spread) Banded() Spread {
 		if index < len(bands) {
 			edge = bands[index]
 		}
-		banded.Classes = append(banded.Classes, Class{AtMost: edge, Count: count})
+		coarse.Classes = append(coarse.Classes, Class{AtMost: edge, Count: count})
 	}
-	return banded
+	return coarse
 }
 
 // bandOf is the band a class's upper edge falls in.

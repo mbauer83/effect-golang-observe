@@ -36,8 +36,8 @@ type Fiber struct {
 	Operation string
 	// SpanID is the span the fork happened in, so a fiber can be found in the
 	// trace beside it.
-	SpanID  uint64
-	Started time.Time
+	SpanID    uint64
+	StartTime time.Time
 	// Children are the fibers this one forked, oldest first.
 	Children []Fiber
 }
@@ -48,19 +48,19 @@ type Fiber struct {
 // live view is worth more than a count: twelve fibers running is a program
 // working, and one fiber running for four minutes is a program stuck.
 func (fiber Fiber) Age(now time.Time) time.Duration {
-	return now.Sub(fiber.Started)
+	return now.Sub(fiber.StartTime)
 }
 
 // Fibers is an observer that tracks the fibers currently running.
 type Fibers struct {
 	mutex   sync.Mutex
 	running map[uint64]Fiber
-	started uint64
-	ended   uint64
+	starts  uint64
+	ends    uint64
 }
 
-// WatchFibers makes an observer over the running fibers.
-func WatchFibers() *Fibers {
+// NewFibers makes an observer over the running fibers.
+func NewFibers() *Fibers {
 	return &Fibers{running: map[uint64]Fiber{}}
 }
 
@@ -82,9 +82,9 @@ func (fibers *Fibers) begin(event effect.RuntimeEvent) {
 		ParentID:  event.ParentFiber,
 		Operation: event.Operation,
 		SpanID:    event.SpanID,
-		Started:   event.Timestamp,
+		StartTime: event.Timestamp,
 	}
-	fibers.started++
+	fibers.starts++
 }
 
 func (fibers *Fibers) finish(event effect.RuntimeEvent) {
@@ -94,16 +94,16 @@ func (fibers *Fibers) finish(event effect.RuntimeEvent) {
 		return
 	}
 	delete(fibers.running, event.FiberID)
-	fibers.ended++
+	fibers.ends++
 }
 
-// Running are the fibers still going, as the tree they were forked in.
+// Tree are the fibers still going, as the tree they were forked in.
 //
 // A fiber whose parent has already completed is a root here. That is the
 // truthful reading rather than a hole in the tree: the parent is gone, this
 // one is not, and a program that forks work outliving its forker is doing
 // something deliberate.
-func (fibers *Fibers) Running() []Fiber {
+func (fibers *Fibers) Tree() []Fiber {
 	fibers.mutex.Lock()
 	defer fibers.mutex.Unlock()
 
@@ -116,37 +116,37 @@ func (fibers *Fibers) Running() []Fiber {
 		}
 		roots = append(roots, identity)
 	}
-	fibers.oldestFirst(roots)
+	fibers.sortOldestFirst(roots)
 	tree := make([]Fiber, 0, len(roots))
 	for _, identity := range roots {
-		tree = append(tree, fibers.nested(identity, children))
+		tree = append(tree, fibers.subtree(identity, children))
 	}
 	return tree
 }
 
-func (fibers *Fibers) nested(identity uint64, children map[uint64][]uint64) Fiber {
+func (fibers *Fibers) subtree(identity uint64, children map[uint64][]uint64) Fiber {
 	fiber := fibers.running[identity]
-	forked := children[identity]
-	fibers.oldestFirst(forked)
-	fiber.Children = make([]Fiber, 0, len(forked))
-	for _, child := range forked {
-		fiber.Children = append(fiber.Children, fibers.nested(child, children))
+	childIDs := children[identity]
+	fibers.sortOldestFirst(childIDs)
+	fiber.Children = make([]Fiber, 0, len(childIDs))
+	for _, child := range childIDs {
+		fiber.Children = append(fiber.Children, fibers.subtree(child, children))
 	}
 	return fiber
 }
 
-// oldestFirst orders by when each fiber started, so the one that has been
+// sortOldestFirst orders by when each fiber started, so the one that has been
 // running longest comes first -- which is the one to look at.
 //
 // By the runtime's timestamp and not by the order the events arrived: fibers
 // that begin at once arrive in whichever order their goroutines got scheduled,
 // and a live view that reordered itself between two readings of the same three
 // fibers would be unreadable. The identity breaks a tie, as it does for spans.
-func (fibers *Fibers) oldestFirst(identities []uint64) {
+func (fibers *Fibers) sortOldestFirst(identities []uint64) {
 	slices.SortStableFunc(identities, func(first uint64, second uint64) int {
-		if started := fibers.running[first].Started.Compare(
-			fibers.running[second].Started); started != 0 {
-			return started
+		if order := fibers.running[first].StartTime.Compare(
+			fibers.running[second].StartTime); order != 0 {
+			return order
 		}
 		return cmp.Compare(first, second)
 	})
@@ -159,17 +159,17 @@ func (fibers *Fibers) Count() int {
 	return len(fibers.running)
 }
 
-// Started and Ended are how many fibers this has seen begin and complete.
-func (fibers *Fibers) Started() uint64 {
+// Starts and Ended are how many fibers this has seen begin and complete.
+func (fibers *Fibers) Starts() uint64 {
 	fibers.mutex.Lock()
 	defer fibers.mutex.Unlock()
-	return fibers.started
+	return fibers.starts
 }
 
-func (fibers *Fibers) Ended() uint64 {
+func (fibers *Fibers) Ends() uint64 {
 	fibers.mutex.Lock()
 	defer fibers.mutex.Unlock()
-	return fibers.ended
+	return fibers.ends
 }
 
 // Render is the running fibers as a tree of lines, each with its age.
@@ -177,11 +177,11 @@ func (fibers *Fibers) Ended() uint64 {
 // Age first, because that is the question: ZIO prints a fiber's lifetime
 // before anything else about it, and for the same reason.
 func (fibers *Fibers) Render(now time.Time) string {
-	var rendered strings.Builder
-	for _, fiber := range fibers.Running() {
-		renderFiber(&rendered, fiber, now, 0)
+	var text strings.Builder
+	for _, fiber := range fibers.Tree() {
+		renderFiber(&text, fiber, now, 0)
 	}
-	return rendered.String()
+	return text.String()
 }
 
 func renderFiber(into *strings.Builder, fiber Fiber, now time.Time, depth int) {

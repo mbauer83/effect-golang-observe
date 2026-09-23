@@ -39,7 +39,7 @@ const (
 	Block
 )
 
-// Buffered hands events to another observer from a goroutine of its own.
+// Buffer hands events to another observer from a goroutine of its own.
 //
 // It owns that goroutine, and Flush is what ends it: the queue is drained,
 // the worker stops, and a second Flush does nothing. A Runtime calls Flush at
@@ -53,12 +53,12 @@ const (
 // there are still events: a Runtime emits runtime_closed after it has flushed
 // its capabilities, so a buffer that treated Flush as the end could never
 // deliver the event that says the runtime closed.
-type Buffered struct {
+type Buffer struct {
 	observer effect.Observer
 	overflow Overflow
-	queue    chan queued
-	drained  chan struct{}
-	dropped  atomic.Uint64
+	queue    chan delivery
+	done     chan struct{}
+	drops    atomic.Uint64
 
 	// mutex keeps a producer from sending into a queue Flush is closing. It is
 	// read-held for the duration of one offer, so Flush cannot close the queue
@@ -68,31 +68,31 @@ type Buffered struct {
 	stopped bool
 }
 
-// queued keeps each event with the context it happened in, stripped of
+// delivery keeps each event with the context it happened in, stripped of
 // cancellation.
 //
 // The emitting fiber's context may well be cancelled by the time the queue
 // drains -- an interrupted run is exactly when the events matter most -- and an
 // exporter handed a cancelled context would abandon them. Its values are kept,
 // so an adapter correlating through the context still can.
-type queued struct {
+type delivery struct {
 	ctx   context.Context
 	event effect.RuntimeEvent
 }
 
-// Buffer makes a buffering observer over another.
-func Buffer(observer effect.Observer, capacity int, overflow Overflow) (*Buffered, error) {
+// NewBuffer makes a buffering observer over another.
+func NewBuffer(observer effect.Observer, capacity int, overflow Overflow) (*Buffer, error) {
 	if observer == nil {
 		return nil, errNoObserver
 	}
 	if capacity < 1 {
 		return nil, errNoCapacity
 	}
-	buffer := &Buffered{
+	buffer := &Buffer{
 		observer: observer,
 		overflow: overflow,
-		queue:    make(chan queued, capacity),
-		drained:  make(chan struct{}),
+		queue:    make(chan delivery, capacity),
+		done:     make(chan struct{}),
 	}
 	go buffer.deliver()
 	return buffer, nil
@@ -100,28 +100,28 @@ func Buffer(observer effect.Observer, capacity int, overflow Overflow) (*Buffere
 
 // Observe queues the event, or applies the overflow policy to it -- or, once
 // the queue has been drained, delivers it where it stands.
-func (buffer *Buffered) Observe(ctx context.Context, event effect.RuntimeEvent) {
+func (buffer *Buffer) Observe(ctx context.Context, event effect.RuntimeEvent) {
 	buffer.mutex.RLock()
 	defer buffer.mutex.RUnlock()
 	if buffer.stopped {
 		buffer.observer.Observe(ctx, event)
 		return
 	}
-	buffer.offer(queued{ctx: context.WithoutCancel(ctx), event: event})
+	buffer.offer(delivery{ctx: context.WithoutCancel(ctx), event: event})
 }
 
-// Dropped is how many events the overflow policy discarded.
+// Drops is how many events the overflow policy discarded.
 //
 // A buffered pipeline that loses events silently is the failure this exists to
 // prevent: the number is the only evidence, so it is readable rather than
 // logged, and a caller that reports it has an honest account of its own
 // telemetry.
-func (buffer *Buffered) Dropped() uint64 {
-	return buffer.dropped.Load()
+func (buffer *Buffer) Drops() uint64 {
+	return buffer.drops.Load()
 }
 
 // Flush drains what is queued and stops the worker.
-func (buffer *Buffered) Flush(ctx context.Context) error {
+func (buffer *Buffer) Flush(ctx context.Context) error {
 	buffer.mutex.Lock()
 	if buffer.stopped {
 		buffer.mutex.Unlock()
@@ -132,20 +132,20 @@ func (buffer *Buffered) Flush(ctx context.Context) error {
 	buffer.mutex.Unlock()
 
 	select {
-	case <-buffer.drained:
+	case <-buffer.done:
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
 	}
 }
 
-func (buffer *Buffered) offer(held queued) {
+func (buffer *Buffer) offer(item delivery) {
 	if buffer.overflow == Block {
-		buffer.queue <- held
+		buffer.queue <- item
 		return
 	}
 	select {
-	case buffer.queue <- held:
+	case buffer.queue <- item:
 		return
 	default:
 	}
@@ -155,22 +155,22 @@ func (buffer *Buffered) offer(held queued) {
 		// not a race worth looping over.
 		select {
 		case <-buffer.queue:
-			buffer.dropped.Add(1)
+			buffer.drops.Add(1)
 		default:
 		}
 		select {
-		case buffer.queue <- held:
+		case buffer.queue <- item:
 			return
 		default:
 		}
 	}
-	buffer.dropped.Add(1)
+	buffer.drops.Add(1)
 }
 
-func (buffer *Buffered) deliver() {
-	defer close(buffer.drained)
-	for held := range buffer.queue {
-		buffer.observer.Observe(held.ctx, held.event)
+func (buffer *Buffer) deliver() {
+	defer close(buffer.done)
+	for item := range buffer.queue {
+		buffer.observer.Observe(item.ctx, item.event)
 	}
 }
 

@@ -12,14 +12,14 @@ import "time"
 // hundred megabytes is a fact, and two hundred megabytes allocated per second
 // is a decision to look at.
 type Change struct {
-	// Over is the wall-clock time the window covered, and Ended when the later
+	// Duration is the wall-clock time the window covered, and Ended when the later
 	// reading was taken.
 	//
 	// Ended is what attributes a window to the work that ran in it: an average
 	// over a name says what the name costs, and only a window with a time on
 	// it says what one run of it cost.
-	Over  time.Duration
-	Ended time.Time
+	Duration time.Duration
+	EndTime  time.Time
 
 	// AllocatedBytes and FreedBytes are what the process allocated and freed
 	// during the window, AllocatedObjects how many allocations that was, and
@@ -43,22 +43,22 @@ type Change struct {
 	Threads uint64
 }
 
-// Between is the change from one reading to a later one.
+// Diff is the change from one reading to a later one.
 //
 // The cumulative counters are subtracted with a floor at zero rather than
 // allowed to wrap: two readings given in the wrong order are a caller's
 // mistake, and a rate of eighteen quintillion bytes per second is a worse
 // report of it than a zero.
-func Between(before Reading, after Reading) Change {
+func Diff(before Reading, after Reading) Change {
 	return Change{
-		Over:             after.Taken.Sub(before.Taken),
-		Ended:            after.Taken,
-		AllocatedBytes:   since(before.AllocatedBytes, after.AllocatedBytes),
-		AllocatedObjects: since(before.AllocatedObjects, after.AllocatedObjects),
-		FreedBytes:       since(before.FreedBytes, after.FreedBytes),
-		GCCycles:         since(before.GCCycles, after.GCCycles),
-		CPUSeconds:       sinceSeconds(used(before), used(after)),
-		GCCPUSeconds:     sinceSeconds(before.GCCPUSeconds, after.GCCPUSeconds),
+		Duration:         after.Time.Sub(before.Time),
+		EndTime:          after.Time,
+		AllocatedBytes:   delta(before.AllocatedBytes, after.AllocatedBytes),
+		AllocatedObjects: delta(before.AllocatedObjects, after.AllocatedObjects),
+		FreedBytes:       delta(before.FreedBytes, after.FreedBytes),
+		GCCycles:         delta(before.GCCycles, after.GCCycles),
+		CPUSeconds:       deltaSeconds(workSeconds(before), workSeconds(after)),
+		GCCPUSeconds:     deltaSeconds(before.GCCPUSeconds, after.GCCPUSeconds),
 		Threads:          after.Threads,
 	}
 }
@@ -74,20 +74,20 @@ func Between(before Reading, after Reading) Change {
 // window seemed to allow should report "fully busy" rather than a hundred and
 // four per cent.
 func (change Change) Busy() float64 {
-	available := change.Over.Seconds() * float64(max(change.Threads, 1))
+	available := change.Duration.Seconds() * float64(max(change.Threads, 1))
 	if available <= 0 {
 		return 0
 	}
 	return min(change.CPUSeconds/available, 1)
 }
 
-// Collecting is the share of the CPU the process used that the garbage
+// GCShare is the share of the CPU the process used that the garbage
 // collector took, from zero to one.
 //
 // The number that says whether a program is spending its time on its own
 // work: a program at ten per cent collecting is ordinary and one at sixty is
 // allocating faster than it can afford.
-func (change Change) Collecting() float64 {
+func (change Change) GCShare() float64 {
 	if change.CPUSeconds <= 0 {
 		return 0
 	}
@@ -108,28 +108,28 @@ func (change Change) MeanObjectBytes() uint64 {
 
 // AllocationRate is bytes allocated per second over the window.
 func (change Change) AllocationRate() float64 {
-	if change.Over <= 0 {
+	if change.Duration <= 0 {
 		return 0
 	}
-	return float64(change.AllocatedBytes) / change.Over.Seconds()
+	return float64(change.AllocatedBytes) / change.Duration.Seconds()
 }
 
-func since(before uint64, after uint64) uint64 {
+func delta(before uint64, after uint64) uint64 {
 	if after < before {
 		return 0
 	}
 	return after - before
 }
 
-// used is the CPU a reading accounts for as work: everything but idle.
-func used(reading Reading) float64 {
+// workSeconds is the CPU a reading accounts for as work: everything but idle.
+func workSeconds(reading Reading) float64 {
 	if reading.CPUSeconds <= reading.IdleCPUSeconds {
 		return 0
 	}
 	return reading.CPUSeconds - reading.IdleCPUSeconds
 }
 
-func sinceSeconds(before float64, after float64) float64 {
+func deltaSeconds(before float64, after float64) float64 {
 	if after < before {
 		return 0
 	}

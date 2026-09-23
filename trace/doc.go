@@ -12,7 +12,7 @@
 // run, one request, a window somebody kept. It is a pure fold, so the same
 // events always give the same tree, down to the order of siblings.
 //
-// Running answers "what is happening" as an Observer. It keeps only the spans
+// Spans answers "what is happening" as an Observer. It keeps only the spans
 // that are open, which is bounded by what a program is actually doing rather
 // than by how long it has been doing it -- so it can be installed for the life
 // of a process, which is exactly when the question gets asked.

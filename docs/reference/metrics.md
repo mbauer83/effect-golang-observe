@@ -1,8 +1,8 @@
 # Metrics reference
 
 ```go
-metrics.Naming(operations ...string) Vocabulary
-metrics.Collect(vocabulary Vocabulary, bounds ...time.Duration) *Collector
+metrics.NewVocabulary(operations ...string) Vocabulary
+metrics.NewCollector(vocabulary Vocabulary, bounds ...time.Duration) *Collector
 
 func (collector *Collector) Snapshot() Snapshot
 func (snapshot Snapshot) Labels() []Label

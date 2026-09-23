@@ -19,8 +19,8 @@ var uuidV8 = regexp.MustCompile(
 	`^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 
 func TestTraceIdentityIsStableForTheSameRoot(t *testing.T) {
-	started := time.Date(2026, 9, 9, 12, 0, 0, 1234, time.UTC)
-	root := trace.Span{ID: 7, Started: started}
+	start := time.Date(2026, 9, 9, 12, 0, 0, 1234, time.UTC)
+	root := trace.Span{ID: 7, StartTime: start}
 
 	first := trace.Identity(root)
 	if first != trace.Identity(root) {
@@ -32,7 +32,7 @@ func TestTraceIdentityIsStableForTheSameRoot(t *testing.T) {
 	grown := root
 	grown.Name = "GET /notes"
 	grown.Duration = time.Millisecond
-	grown.Children = []trace.Span{{ID: 8, ParentID: 7, Started: started}}
+	grown.Children = []trace.Span{{ID: 8, ParentID: 7, StartTime: start}}
 	if trace.Identity(grown) != first {
 		t.Fatal("expected an identity of the root alone")
 	}
@@ -42,15 +42,15 @@ func TestTraceIdentityIsStableForTheSameRoot(t *testing.T) {
 }
 
 func TestTraceIdentityDistinguishesRootsThatShareACounter(t *testing.T) {
-	started := time.Date(2026, 9, 9, 12, 0, 0, 1234, time.UTC)
+	start := time.Date(2026, 9, 9, 12, 0, 0, 1234, time.UTC)
 	// The case a counter cannot answer: two roots numbered the same, which is
 	// what a restart or a replica produces.
-	same := trace.Identity(trace.Span{ID: 1, Started: started})
-	later := trace.Identity(trace.Span{ID: 1, Started: started.Add(time.Nanosecond)})
+	same := trace.Identity(trace.Span{ID: 1, StartTime: start})
+	later := trace.Identity(trace.Span{ID: 1, StartTime: start.Add(time.Nanosecond)})
 	if same == later {
 		t.Fatal("expected two starts to be two traces")
 	}
-	other := trace.Identity(trace.Span{ID: 2, Started: started})
+	other := trace.Identity(trace.Span{ID: 2, StartTime: start})
 	if same == other {
 		t.Fatal("expected two roots to be two traces")
 	}
@@ -58,8 +58,8 @@ func TestTraceIdentityDistinguishesRootsThatShareACounter(t *testing.T) {
 	seen := map[string]bool{}
 	for identity := 1; identity <= 500; identity++ {
 		name := trace.Identity(trace.Span{
-			ID:      uint64(identity),
-			Started: started.Add(time.Duration(identity) * time.Microsecond),
+			ID:        uint64(identity),
+			StartTime: start.Add(time.Duration(identity) * time.Microsecond),
 		})
 		if seen[name] {
 			t.Fatalf("identity %q was given twice", name)

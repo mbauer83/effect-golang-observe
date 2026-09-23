@@ -3,11 +3,11 @@
 ```go
 process.Read() Reading
 process.Between(before, after Reading) Change
-process.Keep(capacity int) (*Series, error)
-process.Accounting(names ...string) *Costs
+process.NewSeries(capacity int) (*Series, error)
+process.NewCosts(names ...string) *Costs
 
-process.Costing(costs, name, fx) effect.Effect[R, E, A]
-process.Measured(costs, name, fx) effect.Effect[R, E, A]   // Costing + Named + WithSpan
+process.Track(costs, name, fx) effect.Effect[R, E, A]
+process.Measure(costs, name, fx) effect.Effect[R, E, A]   // Track + WithName + WithSpan
 
 func (series *Series) Sample() Reading
 func (series *Series) Readings() []Reading
@@ -58,7 +58,7 @@ second is a worse report of it than a zero.
 
 ## Series
 
-`Keep` holds the last readings and forgets the rest — bounded, because this is
+`NewSeries` holds the last readings and forgets the rest — bounded, because this is
 installed for the life of a program. It needs room for at least two: a series
 of one has no change in it, and a change is what a series is for.
 
@@ -83,20 +83,20 @@ Bounded by a declared vocabulary, exactly as a
 [metric label](metrics.md) is: a name per request is a series per request, and
 an unlisted name is accounted under `Unnamed`.
 
-`Costing` takes its first reading **when the effect is interpreted**, not when
+`Track` takes its first reading **when the effect is interpreted**, not when
 it is described, so one description measured twice records two runs. The second
 reading is a finalizer, so work that failed or was interrupted is accounted
 too — a request that allocated a hundred megabytes and then gave up is exactly
-the one worth seeing. A `nil` account makes `Costing` the effect itself, so a
+the one worth seeing. A `nil` account makes `Track` the effect itself, so a
 caller may pass one rather than branch around it.
 
-`Measured` is `Costing` with a name and a span: the three wanted together
+`Measure` is `Track` with a name and a span: the three wanted together
 whenever a stage of some work deserves its own account.
 
 ```go
 effect.Gen(func(do *effect.Do[Env, Refusal]) Report {
-    held := do.Await(process.Measured(costs, "read", store.All()))
-    return do.Await(process.Measured(costs, "digest", digesting(held)))
+    held := do.Await(process.Measure(costs, "read", store.All()))
+    return do.Await(process.Measure(costs, "digest", digesting(held)))
 })
 ```
 
@@ -114,7 +114,7 @@ cost.ObjectsPerRun()
 cost.MeanObjectBytes()
 ```
 
-`Sizing` is `Accounting` that also keeps **which sizes** those allocations
+`NewCostsWithSizes` is `NewCosts` that also keeps **which sizes** those allocations
 were, from Go's own allocation-size histogram. A separate constructor because
 it carries more, not because it costs more to read: reading the 68-bucket
 histogram measured at 311ns against 290ns for the scalars alone — twenty
@@ -179,7 +179,7 @@ zero to read as "below the counter's resolution" rather than as "allocated
 nothing". A column of zeros with occasional spikes is that artefact; a rising
 line is not.
 
-**A window measures the work it wraps and nothing outside it.** Where `Costing`
+**A window measures the work it wraps and nothing outside it.** Where `Track`
 wraps a web handler, the request's codecs are outside it — see the
 [inspector](https://github.com/mbauer83/effect-golang-observe-web/blob/main/docs/reference/inspect.md).
 

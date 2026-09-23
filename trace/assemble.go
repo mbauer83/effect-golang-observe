@@ -34,46 +34,46 @@ type Trace struct {
 // incomplete. A span whose end arrived without its start -- which a truncated
 // window will do -- contributes its events to Loose and no half-span.
 func Assemble(events []effect.RuntimeEvent) Trace {
-	building := map[uint64]*Span{}
+	spans := map[uint64]*Span{}
 	for _, event := range events {
 		if event.Kind == effect.EventSpanStarted {
-			building[event.SpanID] = startedSpan(event)
+			spans[event.SpanID] = newSpan(event)
 		}
 	}
 
-	assembled := Trace{}
+	tree := Trace{}
 	for _, event := range events {
 		switch {
 		case event.Kind == effect.EventSpanStarted:
 			continue
 		case event.Kind == effect.EventSpanEnded:
-			if span, known := building[event.SpanID]; known {
+			if span, known := spans[event.SpanID]; known {
 				endSpan(span, event)
 				continue
 			}
-			assembled.Loose = append(assembled.Loose, event)
+			tree.Loose = append(tree.Loose, event)
 		default:
-			if span, known := building[event.SpanID]; known {
+			if span, known := spans[event.SpanID]; known {
 				span.Events = append(span.Events, event)
 				continue
 			}
-			assembled.Loose = append(assembled.Loose, event)
+			tree.Loose = append(tree.Loose, event)
 		}
 	}
 
-	assembled.Roots = rooted(building)
-	return assembled
+	tree.Roots = nest(spans)
+	return tree
 }
 
-// startedSpan is a span as its start describes it.
-func startedSpan(event effect.RuntimeEvent) *Span {
+// newSpan is a span as its start describes it.
+func newSpan(event effect.RuntimeEvent) *Span {
 	return &Span{
 		ID:         event.SpanID,
 		ParentID:   event.ParentID,
 		Name:       event.Operation,
 		Source:     event.Source,
 		FiberID:    event.FiberID,
-		Started:    event.Timestamp,
+		StartTime:  event.Timestamp,
 		Attributes: event.Attributes,
 	}
 }
@@ -82,29 +82,29 @@ func startedSpan(event effect.RuntimeEvent) *Span {
 // because the runtime supplies the metadata in force where the span ended and
 // a reader that saw only the start's would miss what the work found out.
 func endSpan(span *Span, event effect.RuntimeEvent) {
-	span.Ended = event.Timestamp
+	span.EndTime = event.Timestamp
 	span.Duration = event.Duration
 	span.Status = event.Status
-	span.Attributes = appendedOnce(span.Attributes, event.Attributes)
+	span.Attributes = mergeAttributes(span.Attributes, event.Attributes)
 }
 
-// rooted hangs each span under its parent and returns those with none.
+// nest hangs each span under its parent and returns those with none.
 //
 // A span whose parent is not in this collection is a root here. That is the
 // truthful reading of a window: the parent exists, this collection does not
 // contain it, and inventing a placeholder for it would put a span in the tree
 // that nothing observed.
-func rooted(building map[uint64]*Span) []Span {
-	identities := make([]uint64, 0, len(building))
-	for identity := range building {
+func nest(spans map[uint64]*Span) []Span {
+	identities := make([]uint64, 0, len(spans))
+	for identity := range spans {
 		identities = append(identities, identity)
 	}
 	slices.Sort(identities)
 
-	roots := make([]uint64, 0, len(building))
+	roots := make([]uint64, 0, len(spans))
 	for _, identity := range identities {
-		span := building[identity]
-		parent, enclosed := building[span.ParentID]
+		span := spans[identity]
+		parent, enclosed := spans[span.ParentID]
 		if !enclosed || span.ParentID == span.ID {
 			roots = append(roots, identity)
 			continue
@@ -114,20 +114,20 @@ func rooted(building map[uint64]*Span) []Span {
 
 	// The children were recorded as identities and are filled in afterwards,
 	// so a parent seen before its child still gets it.
-	assembled := make([]Span, 0, len(roots))
+	tree := make([]Span, 0, len(roots))
 	for _, identity := range roots {
-		assembled = append(assembled, filled(building, identity))
+		tree = append(tree, subtree(spans, identity))
 	}
-	slices.SortStableFunc(assembled, byStart)
-	return assembled
+	slices.SortStableFunc(tree, byStart)
+	return tree
 }
 
-// filled reads one span and its descendants out of the map.
-func filled(building map[uint64]*Span, identity uint64) Span {
-	span := *building[identity]
+// subtree reads one span and its descendants out of the map.
+func subtree(spans map[uint64]*Span, identity uint64) Span {
+	span := *spans[identity]
 	children := make([]Span, 0, len(span.Children))
 	for _, child := range span.Children {
-		children = append(children, filled(building, child.ID))
+		children = append(children, subtree(spans, child.ID))
 	}
 	slices.SortStableFunc(children, byStart)
 	span.Children = children
@@ -142,24 +142,24 @@ func filled(building map[uint64]*Span, identity uint64) Span {
 }
 
 func byStart(first Span, second Span) int {
-	if started := first.Started.Compare(second.Started); started != 0 {
-		return started
+	if order := first.StartTime.Compare(second.StartTime); order != 0 {
+		return order
 	}
 	return cmp.Compare(first.ID, second.ID)
 }
 
-// appendedOnce keeps the start's attributes and adds the end's, skipping a key
+// mergeAttributes keeps the start's attributes and adds the end's, skipping a key
 // the start already carries with the same value -- which is the ordinary case,
 // since the runtime supplies the same inherited metadata at both boundaries.
-func appendedOnce(held []slog.Attr, arriving []slog.Attr) []slog.Attr {
-	appended := append([]slog.Attr{}, held...)
-	for _, attribute := range arriving {
-		if slices.ContainsFunc(held, func(already slog.Attr) bool {
-			return already.Equal(attribute)
+func mergeAttributes(attributes []slog.Attr, more []slog.Attr) []slog.Attr {
+	union := append([]slog.Attr{}, attributes...)
+	for _, attribute := range more {
+		if slices.ContainsFunc(attributes, func(existing slog.Attr) bool {
+			return existing.Equal(attribute)
 		}) {
 			continue
 		}
-		appended = append(appended, attribute)
+		union = append(union, attribute)
 	}
-	return appended
+	return union
 }

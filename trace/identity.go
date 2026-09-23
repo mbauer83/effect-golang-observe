@@ -27,11 +27,11 @@ import (
 // this: an identifier laid out by whoever made it. It is not random, and
 // saying version 4 would claim it was.
 func Identity(root Span) string {
-	held := make([]byte, 0, 8+8+8)
-	held = binary.BigEndian.AppendUint64(held, instance)
-	held = binary.BigEndian.AppendUint64(held, root.ID)
-	held = binary.BigEndian.AppendUint64(held, uint64(root.Started.UnixNano()))
-	sum := sha256.Sum256(held)
+	seed := make([]byte, 0, 8+8+8)
+	seed = binary.BigEndian.AppendUint64(seed, instance)
+	seed = binary.BigEndian.AppendUint64(seed, root.ID)
+	seed = binary.BigEndian.AppendUint64(seed, uint64(root.StartTime.UnixNano()))
+	sum := sha256.Sum256(seed)
 
 	var bytes [16]byte
 	copy(bytes[:], sum[:16])
@@ -47,12 +47,12 @@ func Identity(root Span) string {
 // Drawn from the system's randomness at start-up. A failure to read it is a
 // defect and not something to carry on quietly from: an identity that is not
 // unique is worse than no identity, because it is believed.
-var instance = drawn()
+var instance = drawInstance()
 
-func drawn() uint64 {
-	held := make([]byte, 8)
-	if _, err := rand.Read(held); err != nil {
+func drawInstance() uint64 {
+	random := make([]byte, 8)
+	if _, err := rand.Read(random); err != nil {
 		panic("trace: the system's randomness is unreadable: " + err.Error())
 	}
-	return binary.BigEndian.Uint64(held)
+	return binary.BigEndian.Uint64(random)
 }

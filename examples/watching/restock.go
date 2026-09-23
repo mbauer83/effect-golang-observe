@@ -27,29 +27,29 @@ func (refusal Refusal) Error() string {
 	return "restocking " + refusal.Item + ": " + refusal.Why
 }
 
-type restocking[A any] = effect.Effect[effect.Unit, Refusal, A]
+type program[A any] = effect.Effect[effect.Unit, Refusal, A]
 
 // Restock reads a stock level for each item and writes it back.
 //
 // Direct style, because the sequence is dependent and there is no defer in the
 // body -- the resource's lifetime is the scope's, which is what a scope is
 // for.
-func Restock(items ...string) restocking[[]int] {
-	return effect.Scoped(func(scope effect.Scope) restocking[[]int] {
+func Restock(items ...string) program[[]int] {
+	return effect.Scoped(func(scope effect.Scope) program[[]int] {
 		return effect.Gen(func(do *effect.Do[effect.Unit, Refusal]) []int {
-			supplier := do.Await(connected(scope))
-			counted := make([]int, 0, len(items))
+			supplier := do.Await(connect(scope))
+			levels := make([]int, 0, len(items))
 			for _, item := range items {
-				counted = append(counted, do.Await(restocked(supplier, item)))
+				levels = append(levels, do.Await(restockItem(supplier, item)))
 			}
-			return counted
+			return levels
 		})
 	}).WithSpan("restock")
 }
 
-// connected holds a supplier for the length of the scope, so the trace shows a
+// connect holds a supplier for the length of the scope, so the trace shows a
 // resource acquired and released around everything between.
-func connected(scope effect.Scope) restocking[*supplier] {
+func connect(scope effect.Scope) program[*supplier] {
 	operations := effect.For[effect.Unit, Refusal]()
 	return scope.AcquireRelease(
 		operations.Succeed(&supplier{attempts: map[string]int{}}).WithName("connect"),
@@ -59,18 +59,18 @@ func connected(scope effect.Scope) restocking[*supplier] {
 	)
 }
 
-// restocked is one item's own span, so the trace has a child per item and the
+// restockItem is one item's own span, so the trace has a child per item and the
 // aggregate has a measurement per item.
-func restocked(from *supplier, item string) restocking[int] {
-	return reading(from, item).RetryN(3).
+func restockItem(from *supplier, item string) program[int] {
+	return readLevel(from, item).RetryN(3).
 		WithName("read-level").
 		WithSpan("item")
 }
 
-// reading refuses twice per item before answering, and refuses an item nobody
+// readLevel refuses twice per item before answering, and refuses an item nobody
 // stocks however often it is asked. A retry that eventually succeeds and one
 // that exhausts are different events, and a trace should show both.
-func reading(from *supplier, item string) restocking[int] {
+func readLevel(from *supplier, item string) program[int] {
 	return effect.From(func(context.Context, effect.Unit) effect.Exit[Refusal, int] {
 		if strings.HasPrefix(item, "unstocked") {
 			return effect.ExitFailure[Refusal, int](

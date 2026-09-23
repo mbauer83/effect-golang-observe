@@ -27,16 +27,16 @@ var mayImport = map[string][]string{
 func TestPackagesDependOnNothingHereButThemselves(t *testing.T) {
 	for pkg, allowed := range mayImport {
 		permitted := map[string]bool{}
-		for _, held := range allowed {
-			permitted[held] = true
+		for _, dependency := range allowed {
+			permitted[dependency] = true
 		}
 		for _, source := range sourcesIn(t, pkg) {
 			for _, line := range strings.Split(readSource(t, source), "\n") {
-				held, found := ownImport(line)
-				if !found || held == pkg || permitted[held] {
+				dependency, found := ownImport(line)
+				if !found || dependency == pkg || permitted[dependency] {
 					continue
 				}
-				t.Errorf("%s imports %s, which it may not", display(t, source), held)
+				t.Errorf("%s imports %s, which it may not", display(t, source), dependency)
 			}
 		}
 	}
@@ -45,7 +45,7 @@ func TestPackagesDependOnNothingHereButThemselves(t *testing.T) {
 // ownImport is an import of this module, as a package path within it. Only an
 // import line counts: a doc comment naming a sibling package is prose.
 func ownImport(line string) (string, bool) {
-	if !imported(line) {
+	if !isImport(line) {
 		return "", false
 	}
 	const prefix = `"github.com/mbauer83/effect-golang-observe/`
@@ -61,10 +61,10 @@ func ownImport(line string) (string, bool) {
 	return rest[:end], true
 }
 
-// imported says the line is an import and not prose that happens to name a
+// isImport says the line is an import and not prose that happens to name a
 // package. An import line is a quoted path and nothing else, optionally behind
 // an alias or the import keyword.
-func imported(line string) bool {
+func isImport(line string) bool {
 	trimmed := strings.TrimSpace(line)
 	if !strings.HasSuffix(trimmed, `"`) {
 		return false
@@ -108,7 +108,7 @@ func TestNothingHereCarriesAThirdPartyDependency(t *testing.T) {
 // thirdPartyImport reports an import that is neither the standard library nor
 // this project. A standard-library path has no dot before its first slash.
 func thirdPartyImport(line string) (string, bool) {
-	if !imported(line) {
+	if !isImport(line) {
 		return "", false
 	}
 	trimmed := strings.TrimSpace(line)

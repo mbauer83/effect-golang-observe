@@ -12,7 +12,7 @@ import (
 	"github.com/mbauer83/effect-golang/effect"
 )
 
-// Costing measures what the process spent while an effect ran and records it
+// Track measures what the process spent while an effect ran and records it
 // under a name.
 //
 // The reading is taken when the effect is interpreted and not when it is
@@ -20,7 +20,7 @@ import (
 // reading is a finalizer, so work that failed or was interrupted is accounted
 // too -- a request that allocated a hundred megabytes and then gave up is
 // exactly the one worth seeing.
-func Costing[R, E, A any](
+func Track[R, E, A any](
 	costs *Costs,
 	name string,
 	fx effect.Effect[R, E, A],
@@ -29,11 +29,11 @@ func Costing[R, E, A any](
 		return fx
 	}
 	operations := effect.For[R, E]()
-	if !costs.Sizes() {
+	if !costs.KeepsSizes() {
 		return operations.Suspend(func() effect.Effect[R, E, A] {
 			before := Read()
 			return fx.Ensuring(effect.AddFinalizer[R](func(context.Context) error {
-				costs.Record(name, Between(before, Read()))
+				costs.Record(name, Diff(before, Read()))
 				return nil
 			}))
 		})
@@ -44,25 +44,25 @@ func Costing[R, E, A any](
 	return operations.Suspend(func() effect.Effect[R, E, A] {
 		before, sizesBefore := Read(), ReadSizes()
 		return fx.Ensuring(effect.AddFinalizer[R](func(context.Context) error {
-			costs.RecordSpread(name, Between(before, Read()),
-				Spreading(sizesBefore, ReadSizes()))
+			costs.RecordSpread(name, Diff(before, Read()),
+				DiffSizes(sizesBefore, ReadSizes()))
 			return nil
 		}))
 	})
 }
 
-// Measured is Costing with a name and a span: the three things wanted together
+// Measure is Track with a name and a span: the three things wanted together
 // whenever a stage of some work is worth accounting for separately.
 //
-//	do.Await(process.Measured(costs, "score", scoring(notes)))
+//	do.Await(process.Measure(costs, "score", scoring(notes)))
 //
 // The name is the span's, the account's key and the metric label all at once,
 // so a stage appears in a trace, in the aggregate and in the account under one
 // word -- and a caller has one place to change it.
-func Measured[R, E, A any](
+func Measure[R, E, A any](
 	costs *Costs,
 	name string,
 	fx effect.Effect[R, E, A],
 ) effect.Effect[R, E, A] {
-	return Costing(costs, name, fx).WithName(name).WithSpan(name)
+	return Track(costs, name, fx).WithName(name).WithSpan(name)
 }

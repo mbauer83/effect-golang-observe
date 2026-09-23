@@ -17,7 +17,7 @@ import (
 )
 
 func TestBucketsAreCumulativeAndSayWhenTheBoundsAreTooNarrow(t *testing.T) {
-	collector := metrics.Collect(metrics.Naming(),
+	collector := metrics.NewCollector(metrics.NewVocabulary(),
 		time.Millisecond, 10*time.Millisecond)
 	for _, took := range []time.Duration{
 		500 * time.Microsecond, 5 * time.Millisecond, time.Second,
@@ -27,52 +27,52 @@ func TestBucketsAreCumulativeAndSayWhenTheBoundsAreTooNarrow(t *testing.T) {
 		})
 	}
 
-	held := collector.Snapshot().Durations[metrics.Label{
+	distribution := collector.Snapshot().Durations[metrics.Label{
 		Kind: effect.EventSpanEnded, Operation: metrics.Unnamed,
 	}]
-	if held.Count != 3 {
-		t.Fatalf("expected all three counted, got %d", held.Count)
+	if distribution.Count != 3 {
+		t.Fatalf("expected all three counted, got %d", distribution.Count)
 	}
-	if held.Buckets[0].Count != 1 || held.Buckets[1].Count != 2 {
-		t.Fatalf("expected cumulative buckets, got %+v", held.Buckets)
+	if distribution.Buckets[0].Count != 1 || distribution.Buckets[1].Count != 2 {
+		t.Fatalf("expected cumulative buckets, got %+v", distribution.Buckets)
 	}
 	// The measurement past the last bound is in Count and in no bucket, which
 	// is how a reader tells "everything was fast" from "these bounds are too
 	// narrow for this".
-	if held.Buckets[1].Count == held.Count {
+	if distribution.Buckets[1].Count == distribution.Count {
 		t.Error("expected the widest bucket to exclude what exceeded it")
 	}
-	if held.Max != time.Second || held.Min != 500*time.Microsecond {
-		t.Fatalf("unexpected extremes: %+v", held)
+	if distribution.Max != time.Second || distribution.Min != 500*time.Microsecond {
+		t.Fatalf("unexpected extremes: %+v", distribution)
 	}
-	if mean := held.Mean(); mean != (time.Second+5500*time.Microsecond)/3 {
+	if mean := distribution.Mean(); mean != (time.Second+5500*time.Microsecond)/3 {
 		t.Fatalf("unexpected mean: %v", mean)
 	}
 	// A quantile is the bound at or below which the share fell -- an upper
 	// bound, because a bucketed histogram knows bounds and not values.
-	if quantile := held.Quantile(0.5); quantile != 10*time.Millisecond {
+	if quantile := distribution.Quantile(0.5); quantile != 10*time.Millisecond {
 		t.Fatalf("unexpected median bound: %v", quantile)
 	}
 }
 
 func TestBoundsAreOrderedAndDeduplicatedWhateverTheCallerGave(t *testing.T) {
-	collector := metrics.Collect(metrics.Naming(),
+	collector := metrics.NewCollector(metrics.NewVocabulary(),
 		10*time.Millisecond, time.Millisecond, 10*time.Millisecond)
 	collector.Observe(context.Background(), effect.RuntimeEvent{
 		Kind: effect.EventSpanEnded, Duration: 5 * time.Millisecond,
 	})
 
-	held := collector.Snapshot().Durations[metrics.Label{
+	distribution := collector.Snapshot().Durations[metrics.Label{
 		Kind: effect.EventSpanEnded, Operation: metrics.Unnamed,
 	}]
-	if len(held.Buckets) != 2 {
-		t.Fatalf("expected the repeat collapsed, got %+v", held.Buckets)
+	if len(distribution.Buckets) != 2 {
+		t.Fatalf("expected the repeat collapsed, got %+v", distribution.Buckets)
 	}
-	if held.Buckets[0].AtMost != time.Millisecond {
-		t.Fatalf("expected ascending bounds, got %+v", held.Buckets)
+	if distribution.Buckets[0].AtMost != time.Millisecond {
+		t.Fatalf("expected ascending bounds, got %+v", distribution.Buckets)
 	}
-	if held.Buckets[0].Count != 0 || held.Buckets[1].Count != 1 {
-		t.Fatalf("expected the measurement in the wider bucket only, got %+v", held.Buckets)
+	if distribution.Buckets[0].Count != 0 || distribution.Buckets[1].Count != 1 {
+		t.Fatalf("expected the measurement in the wider bucket only, got %+v", distribution.Buckets)
 	}
 }
 
@@ -82,26 +82,26 @@ func TestAQuantileIsNeverCoarserThanTheLongestMeasurement(t *testing.T) {
 	// 100µs" beside "longest 2µs". Both were true of the bound and the pair
 	// was nonsense, and Max is the tighter bound because every measurement is
 	// at or below it.
-	collector := metrics.Collect(metrics.Naming(), 100*time.Microsecond, time.Millisecond)
+	collector := metrics.NewCollector(metrics.NewVocabulary(), 100*time.Microsecond, time.Millisecond)
 	for _, took := range []time.Duration{2 * time.Microsecond, 3 * time.Microsecond} {
 		collector.Observe(context.Background(), effect.RuntimeEvent{
 			Kind: effect.EventSpanEnded, Duration: took,
 		})
 	}
 
-	held := collector.Snapshot().Durations[metrics.Label{
+	distribution := collector.Snapshot().Durations[metrics.Label{
 		Kind: effect.EventSpanEnded, Operation: metrics.Unnamed,
 	}]
-	if held.Max != 3*time.Microsecond {
-		t.Fatalf("expected the longest measurement, got %v", held.Max)
+	if distribution.Max != 3*time.Microsecond {
+		t.Fatalf("expected the longest measurement, got %v", distribution.Max)
 	}
-	if median := held.Quantile(0.5); median > held.Max {
+	if median := distribution.Quantile(0.5); median > distribution.Max {
 		t.Fatalf("expected a bound no coarser than the longest, got %v against %v",
-			median, held.Max)
+			median, distribution.Max)
 	}
 	// And the widest share is bounded the same way rather than by the widest
 	// bucket, which nothing measured.
-	if all := held.Quantile(1); all != held.Max {
+	if all := distribution.Quantile(1); all != distribution.Max {
 		t.Fatalf("expected every measurement bounded by the longest, got %v", all)
 	}
 	// A bound tighter than Max is still reported as the bound: clamping must
@@ -122,7 +122,7 @@ func TestTheDefaultBucketsResolveWhatARuntimeActuallyBrackets(t *testing.T) {
 	// single-digit microseconds. Bounds that put all of those in one bucket
 	// answer every quantile with the same number, which is what the first two
 	// choices of default did.
-	collector := metrics.Collect(metrics.Naming())
+	collector := metrics.NewCollector(metrics.NewVocabulary())
 	for _, took := range []time.Duration{
 		2 * time.Microsecond, 3 * time.Microsecond, 40 * time.Microsecond,
 	} {
@@ -131,13 +131,13 @@ func TestTheDefaultBucketsResolveWhatARuntimeActuallyBrackets(t *testing.T) {
 		})
 	}
 
-	held := collector.Snapshot().Durations[metrics.Label{
+	distribution := collector.Snapshot().Durations[metrics.Label{
 		Kind: effect.EventSpanEnded, Operation: metrics.Unnamed,
 	}]
-	if first, second := held.Quantile(0.5), held.Quantile(1); first == second {
+	if first, second := distribution.Quantile(0.5), distribution.Quantile(1); first == second {
 		t.Fatalf("expected the buckets to tell these apart, got %v for both", first)
 	}
-	if median := held.Quantile(0.5); median > 10*time.Microsecond {
+	if median := distribution.Quantile(0.5); median > 10*time.Microsecond {
 		t.Fatalf("expected microsecond resolution, got %v", median)
 	}
 }
@@ -147,7 +147,7 @@ func TestAnEventThatNamesNoOperationIsNotSweptIntoOther(t *testing.T) {
 	// told to distinguish"; a runtime closing names nothing at all, and a
 	// reader who cannot tell them apart goes looking for work that does not
 	// exist.
-	collector := metrics.Collect(metrics.Naming("declared"))
+	collector := metrics.NewCollector(metrics.NewVocabulary("declared"))
 	background := context.Background()
 
 	collector.Observe(background, effect.RuntimeEvent{Kind: effect.EventRuntimeClosing})
@@ -159,8 +159,8 @@ func TestAnEventThatNamesNoOperationIsNotSweptIntoOther(t *testing.T) {
 	})
 
 	under := map[string]uint64{}
-	taken := collector.Snapshot()
-	for label, count := range taken.Counts {
+	snapshot := collector.Snapshot()
+	for label, count := range snapshot.Counts {
 		under[label.Operation] += count
 	}
 	if under[metrics.Unnamed] != 1 {
@@ -179,9 +179,9 @@ func TestAnEventThatNamesNoOperationIsNotSweptIntoOther(t *testing.T) {
 			Kind: effect.EventSpanEnded, Operation: "request-" + strconv.Itoa(index),
 		})
 	}
-	if grown := len(collector.Snapshot().Labels()); grown != len(taken.Labels()) {
+	if grown := len(collector.Snapshot().Labels()); grown != len(snapshot.Labels()) {
 		t.Fatalf("expected the labels not to grow, got %d against %d",
-			grown, len(taken.Labels()))
+			grown, len(snapshot.Labels()))
 	}
 }
 
@@ -193,7 +193,7 @@ func TestAnEventThatNamesNoOperationIsNotSweptIntoOther(t *testing.T) {
 // makes a per-endpoint table worth looking at.
 func TestNoBoundOverstatesAMeasurementByMoreThanTwoAndAHalf(t *testing.T) {
 	previous := time.Duration(0)
-	for _, bound := range metrics.DefaultBounds {
+	for _, bound := range metrics.DefaultBoundaries {
 		if previous > 0 && bound > previous*5/2 {
 			t.Fatalf("a measurement just over %s is reported at %s, which is %.1f times it",
 				previous, bound, float64(bound)/float64(previous))
@@ -206,12 +206,12 @@ func TestNoBoundOverstatesAMeasurementByMoreThanTwoAndAHalf(t *testing.T) {
 // least the largest bucket": work waiting on somebody else's service does
 // take tens of seconds.
 func TestTheBoundsReachWorkThatWaitsOnSomebodyElse(t *testing.T) {
-	longest := metrics.DefaultBounds[len(metrics.DefaultBounds)-1]
+	longest := metrics.DefaultBoundaries[len(metrics.DefaultBoundaries)-1]
 
 	if longest < time.Minute {
 		t.Fatalf("the largest bound is %s, so anything slower has no bound at all", longest)
 	}
-	if first := metrics.DefaultBounds[0]; first > time.Microsecond {
+	if first := metrics.DefaultBoundaries[0]; first > time.Microsecond {
 		t.Fatalf("the smallest bound is %s, so every in-process span shares one bucket", first)
 	}
 }

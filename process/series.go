@@ -20,27 +20,27 @@ import (
 // deliberately does not spawn those.
 type Series struct {
 	mutex sync.Mutex
-	held  []Reading
+	slots []Reading
 	next  int
 	full  bool
-	taken uint64
+	total uint64
 }
 
-// Keep makes a series over the last capacity readings.
-func Keep(capacity int) (*Series, error) {
+// NewSeries makes a series over the last capacity readings.
+func NewSeries(capacity int) (*Series, error) {
 	if capacity < 2 {
 		// Two, not one: a series of one reading has no change in it, and a
 		// change is what the series is for.
 		return nil, errTooFewReadings
 	}
-	return &Series{held: make([]Reading, capacity)}, nil
+	return &Series{slots: make([]Reading, capacity)}, nil
 }
 
 // Sample takes a reading, keeps it, and returns it.
 func (series *Series) Sample() Reading {
-	taken := Read()
-	series.Add(taken)
-	return taken
+	reading := Read()
+	series.Add(reading)
+	return reading
 }
 
 // Add keeps a reading somebody else took, which is what lets a caller sample
@@ -48,10 +48,10 @@ func (series *Series) Sample() Reading {
 func (series *Series) Add(reading Reading) {
 	series.mutex.Lock()
 	defer series.mutex.Unlock()
-	series.held[series.next] = reading
+	series.slots[series.next] = reading
 	series.next++
-	series.taken++
-	if series.next == len(series.held) {
+	series.total++
+	if series.next == len(series.slots) {
 		series.next = 0
 		series.full = true
 	}
@@ -62,41 +62,41 @@ func (series *Series) Readings() []Reading {
 	series.mutex.Lock()
 	defer series.mutex.Unlock()
 	if !series.full {
-		return append([]Reading{}, series.held[:series.next]...)
+		return append([]Reading{}, series.slots[:series.next]...)
 	}
-	ordered := make([]Reading, 0, len(series.held))
-	ordered = append(ordered, series.held[series.next:]...)
-	return append(ordered, series.held[:series.next]...)
+	readings := make([]Reading, 0, len(series.slots))
+	readings = append(readings, series.slots[series.next:]...)
+	return append(readings, series.slots[:series.next]...)
 }
 
 // Latest is the most recent reading, and false when none has been taken.
 func (series *Series) Latest() (Reading, bool) {
-	held := series.Readings()
-	if len(held) == 0 {
+	readings := series.Readings()
+	if len(readings) == 0 {
 		return Reading{}, false
 	}
-	return held[len(held)-1], true
+	return readings[len(readings)-1], true
 }
 
-// Recent is the change across the whole series: the oldest reading to the
+// Change is the change across the whole series: the oldest reading to the
 // newest.
 //
 // False when there are fewer than two, because a change needs two readings and
 // reporting a zero would say the program did nothing rather than that nobody
 // has looked twice.
-func (series *Series) Recent() (Change, bool) {
-	held := series.Readings()
-	if len(held) < 2 {
+func (series *Series) Change() (Change, bool) {
+	readings := series.Readings()
+	if len(readings) < 2 {
 		return Change{}, false
 	}
-	return Between(held[0], held[len(held)-1]), true
+	return Diff(readings[0], readings[len(readings)-1]), true
 }
 
-// Taken is how many readings have been taken, including those forgotten.
-func (series *Series) Taken() uint64 {
+// Count is how many readings have been taken, including those forgotten.
+func (series *Series) Count() uint64 {
 	series.mutex.Lock()
 	defer series.mutex.Unlock()
-	return series.taken
+	return series.total
 }
 
 // errTooFewReadings reports a series with no room for a change.
@@ -106,10 +106,10 @@ type errorString string
 
 func (message errorString) Error() string { return string(message) }
 
-// Elapsed is how long the series covers, which is what a chart's axis is.
-func Elapsed(readings []Reading) time.Duration {
+// Duration is how long the series covers, which is what a chart's axis is.
+func Duration(readings []Reading) time.Duration {
 	if len(readings) < 2 {
 		return 0
 	}
-	return readings[len(readings)-1].Taken.Sub(readings[0].Taken)
+	return readings[len(readings)-1].Time.Sub(readings[0].Time)
 }

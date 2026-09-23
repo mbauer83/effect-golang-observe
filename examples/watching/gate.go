@@ -12,15 +12,15 @@ import (
 	"github.com/mbauer83/effect-golang/effect"
 )
 
-// Held is work in flight, and the release that lets it finish.
-type Held struct {
+// Gate is work in flight, and the release that lets it finish.
+type Gate struct {
 	// Fibers are the forked fibers, every one of them running.
 	Fibers []effect.Fiber[Refusal, int]
 	// Release lets them all finish. Completing it twice is harmless.
 	Release effect.Deferred[Refusal, effect.Unit]
 }
 
-// Holding forks one fiber per item, each waiting for the release, and returns
+// Hold forks one fiber per item, each waiting for the release, and returns
 // only once every one of them is running.
 //
 // Forking is not the same as running: Fork hands back a handle and the fiber
@@ -28,36 +28,36 @@ type Held struct {
 // some of the fibers and not others. Each fiber therefore says it has begun
 // before it waits, and this waits for all of them -- which is what makes a
 // live view something a program can assert on rather than observe by luck.
-func Holding(count int) restocking[Held] {
-	return effect.Gen(func(do *effect.Do[effect.Unit, Refusal]) Held {
+func Hold(count int) program[Gate] {
+	return effect.Gen(func(do *effect.Do[effect.Unit, Refusal]) Gate {
 		operations := effect.For[effect.Unit, Refusal]()
 		release := do.Await(operations.WidenError(effect.NewDeferred[effect.Unit, Refusal, effect.Unit]()))
 
-		held := Held{Release: release, Fibers: make([]effect.Fiber[Refusal, int], 0, count)}
-		begun := make([]effect.Deferred[Refusal, effect.Unit], 0, count)
+		gate := Gate{Release: release, Fibers: make([]effect.Fiber[Refusal, int], 0, count)}
+		signals := make([]effect.Deferred[Refusal, effect.Unit], 0, count)
 		for index := range count {
 			signal := do.Await(operations.WidenError(effect.NewDeferred[effect.Unit, Refusal, effect.Unit]()))
-			begun = append(begun, signal)
-			held.Fibers = append(held.Fibers,
+			signals = append(signals, signal)
+			gate.Fibers = append(gate.Fibers,
 				do.Await(operations.WidenError(
-					effect.Fork[effect.Unit](waiting(signal, release, index)))))
+					effect.Fork[effect.Unit](awaitRelease(signal, release, index)))))
 		}
-		for _, signal := range begun {
+		for _, signal := range signals {
 			do.Await(signal.Await[effect.Unit]())
 		}
-		return held
+		return gate
 	}).WithSpan("hold")
 }
 
-// waiting is one held fiber: it says it has begun, then waits to be let go.
-func waiting(
+// awaitRelease is one held fiber: it says it has begun, then waits to be let go.
+func awaitRelease(
 	signal effect.Deferred[Refusal, effect.Unit],
 	release effect.Deferred[Refusal, effect.Unit],
 	index int,
-) restocking[int] {
+) program[int] {
 	operations := effect.For[effect.Unit, Refusal]()
 	return operations.WidenError(signal.Succeed[effect.Unit](effect.Unit{})).
-		FlatMap(func(bool) restocking[int] {
+		FlatMap(func(bool) program[int] {
 			return release.Await[effect.Unit]().Map(func(effect.Unit) int { return index })
 		}).
 		WithName("await-release").
@@ -65,14 +65,14 @@ func waiting(
 }
 
 // Finish releases the held work and waits for every fiber.
-func Finish(held Held) restocking[[]int] {
+func Finish(gate Gate) program[[]int] {
 	return effect.Gen(func(do *effect.Do[effect.Unit, Refusal]) []int {
 		operations := effect.For[effect.Unit, Refusal]()
-		do.Await(operations.WidenError(held.Release.Succeed[effect.Unit](effect.Unit{})))
-		finished := make([]int, 0, len(held.Fibers))
-		for _, fiber := range held.Fibers {
-			finished = append(finished, do.Await(fiber.Join[effect.Unit]()))
+		do.Await(operations.WidenError(gate.Release.Succeed[effect.Unit](effect.Unit{})))
+		results := make([]int, 0, len(gate.Fibers))
+		for _, fiber := range gate.Fibers {
+			results = append(results, do.Await(fiber.Join[effect.Unit]()))
 		}
-		return finished
+		return results
 	}).WithSpan("finish")
 }

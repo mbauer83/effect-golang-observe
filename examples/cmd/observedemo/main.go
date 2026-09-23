@@ -21,7 +21,7 @@ import (
 func main() {
 	// The operations worth their own measurements, named up front: that is
 	// what keeps the number of series fixed before the program runs.
-	watch, err := watching.Watching(256, "restock", "item", "read-level")
+	watch, err := watching.NewWatch(256, "restock", "item", "read-level")
 	if err != nil {
 		fail(err)
 	}
@@ -52,7 +52,7 @@ func main() {
 	reportTrace(watch)
 	reportMeasurements(watch)
 	fmt.Printf("\nstill open: %d span(s); events dropped: %d\n",
-		watch.Running.Count(), watch.Dropped())
+		watch.Spans.Count(), watch.Drops())
 }
 
 // reportLive forks work that waits, looks at what is running, and lets it go.
@@ -62,31 +62,31 @@ func main() {
 // which is the first thing this got wrong.
 func reportLive(runtime *effect.Runtime, watch *watching.Watch) {
 	program := effect.Gen(func(do *effect.Do[effect.Unit, watching.Refusal]) []int {
-		held := do.Await(watching.Holding(3))
-		do.Await(looking(func() { showLive(watch) }))
-		return do.Await(watching.Finish(held))
+		gate := do.Await(watching.Hold(3))
+		do.Await(sample(func() { showLive(watch) }))
+		return do.Await(watching.Finish(gate))
 	})
 	if _, done := runtime.Run(context.Background(), effect.Unit{}, program).Value(); !done {
 		fail(errors.New("the held work did not finish"))
 	}
 	fmt.Printf("  released: %d fiber(s) and %d span(s) still open\n",
-		watch.Fibers.Count(), watch.Running.Count())
+		watch.Fibers.Count(), watch.Spans.Count())
 }
 
 // showLive is the sampling itself: what is running, at the instant it is asked.
 func showLive(watch *watching.Watch) {
 	now := time.Now()
 	fmt.Printf("\nwhat is running, sampled while it is (%d fiber(s), %d span(s) open)\n",
-		watch.Fibers.Count(), watch.Running.Count())
-	fmt.Print(indented(watch.Fibers.Render(now)))
-	for _, span := range watch.Running.Open() {
+		watch.Fibers.Count(), watch.Spans.Count())
+	fmt.Print(indent(watch.Fibers.Render(now)))
+	for _, span := range watch.Spans.Open() {
 		fmt.Printf("  %s open %s\n", span.Name, span.Age(now))
 	}
 }
 
-// looking performs one side effect between two stages, which is what sampling
+// sample performs one side effect between two stages, which is what sampling
 // a running program is.
-func looking(look func()) effect.Effect[effect.Unit, watching.Refusal, effect.Unit] {
+func sample(look func()) effect.Effect[effect.Unit, watching.Refusal, effect.Unit] {
 	return effect.From(func(context.Context, effect.Unit) effect.Exit[watching.Refusal, effect.Unit] {
 		look()
 		return effect.ExitSuccess[watching.Refusal](effect.Unit{})
@@ -94,48 +94,48 @@ func looking(look func()) effect.Effect[effect.Unit, watching.Refusal, effect.Un
 }
 
 func reportTrace(watch *watching.Watch) {
-	assembled := watch.Trace()
+	trace := watch.Trace()
 	fmt.Printf("\nwhat it did (%d span(s), %d event(s) outside every span)\n",
-		len(assembled.Spans()), len(assembled.Loose))
-	fmt.Print(indented(assembled.Render()))
-	if failed := assembled.Failed(); len(failed) > 0 {
+		len(trace.Spans()), len(trace.Loose))
+	fmt.Print(indent(trace.Render()))
+	if unsuccessful := trace.Unsuccessful(); len(unsuccessful) > 0 {
 		fmt.Println("\nwhat failed")
-		for _, span := range failed {
+		for _, span := range unsuccessful {
 			fmt.Printf("  %s %s after %s\n", span.Name, span.Status, span.Duration)
 		}
 	}
 }
 
 func reportMeasurements(watch *watching.Watch) {
-	taken := watch.Collected.Snapshot()
+	snapshot := watch.Collector.Snapshot()
 	fmt.Println("\nhow much of it there was")
-	for _, label := range taken.Labels() {
-		measured := ""
-		if held, timed := taken.Durations[label]; timed {
-			measured = fmt.Sprintf("  median at most %s, longest %s",
-				held.Quantile(0.5), held.Max)
+	for _, label := range snapshot.Labels() {
+		detail := ""
+		if distribution, timed := snapshot.Durations[label]; timed {
+			detail = fmt.Sprintf("  median at most %s, longest %s",
+				distribution.Quantile(0.5), distribution.Max)
 		}
-		if held, delayed := taken.Delays[label]; delayed {
-			measured += fmt.Sprintf("  waited %s in total", held.Sum)
+		if distribution, delayed := snapshot.Delays[label]; delayed {
+			detail += fmt.Sprintf("  waited %s in total", distribution.Sum)
 		}
 		fmt.Printf("  %-18s %-14s %-12s x%d%s\n",
-			label.Kind, named(label.Operation), status(label.Status),
-			taken.Counts[label], measured)
+			label.Kind, displayName(label.Operation), status(label.Status),
+			snapshot.Counts[label], detail)
 	}
 }
 
-func named(operation string) string {
+func displayName(operation string) string {
 	if operation == metrics.Other {
 		return "(other)"
 	}
 	return operation
 }
 
-func status(held effect.EventStatus) string {
-	if held == effect.EventStatusNone {
+func status(value effect.EventStatus) string {
+	if value == effect.EventStatusNone {
 		return "-"
 	}
-	return string(held)
+	return string(value)
 }
 
 func outcome[E, A any](exit effect.Exit[E, A]) string {
@@ -146,9 +146,9 @@ func outcome[E, A any](exit effect.Exit[E, A]) string {
 	return "refused: " + cause.String()
 }
 
-func indented(rendered string) string {
+func indent(text string) string {
 	out := ""
-	for line := range splitLines(rendered) {
+	for line := range splitLines(text) {
 		out += "  " + line + "\n"
 	}
 	return out
@@ -156,14 +156,14 @@ func indented(rendered string) string {
 
 // splitLines yields each non-empty line, so the indent is not applied to the
 // blank one a trailing newline leaves behind.
-func splitLines(rendered string) func(func(string) bool) {
+func splitLines(text string) func(func(string) bool) {
 	return func(yield func(string) bool) {
 		start := 0
-		for index := range len(rendered) {
-			if rendered[index] != '\n' {
+		for index := range len(text) {
+			if text[index] != '\n' {
 				continue
 			}
-			if index > start && !yield(rendered[start:index]) {
+			if index > start && !yield(text[start:index]) {
 				return
 			}
 			start = index + 1

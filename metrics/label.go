@@ -31,32 +31,32 @@ const Unnamed = ""
 // keeps the count of series at (names + 1) x kinds x statuses -- a number
 // fixed before the program runs.
 type Vocabulary struct {
-	allowed map[string]bool
+	operations map[string]bool
 }
 
-// Naming declares the operation names worth their own measurements.
+// NewVocabulary declares the operation names worth their own measurements.
 //
-// Naming nothing is a legitimate choice: every measurement is then labelled by
+// NewVocabulary nothing is a legitimate choice: every measurement is then labelled by
 // kind and status alone, which is the cheapest useful aggregate and the one a
 // program with no opinion should start from.
-func Naming(operations ...string) Vocabulary {
-	allowed := make(map[string]bool, len(operations))
+func NewVocabulary(operations ...string) Vocabulary {
+	names := make(map[string]bool, len(operations))
 	for _, operation := range operations {
 		if operation != "" && operation != Other {
-			allowed[operation] = true
+			names[operation] = true
 		}
 	}
-	return Vocabulary{allowed: allowed}
+	return Vocabulary{operations: names}
 }
 
 // Names are the declared operation names, in order.
 func (vocabulary Vocabulary) Names() []string {
-	named := make([]string, 0, len(vocabulary.allowed))
-	for operation := range vocabulary.allowed {
-		named = append(named, operation)
+	names := make([]string, 0, len(vocabulary.operations))
+	for operation := range vocabulary.operations {
+		names = append(names, operation)
 	}
-	slices.Sort(named)
-	return named
+	slices.Sort(names)
+	return names
 }
 
 // labelFor is the bounded identity of one event's measurements.
@@ -72,7 +72,7 @@ func (vocabulary Vocabulary) labelFor(event effect.RuntimeEvent) Label {
 	switch {
 	case event.Operation == "":
 		operation = Unnamed
-	case vocabulary.allowed[event.Operation]:
+	case vocabulary.operations[event.Operation]:
 		operation = event.Operation
 	}
 	return Label{Kind: event.Kind, Status: event.Status, Operation: operation}

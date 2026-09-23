@@ -13,7 +13,7 @@ import (
 // no per-goroutine CPU clock, so a number attributed to one fiber would be
 // invented rather than measured.
 type Reading struct {
-	Taken time.Time
+	Time time.Time
 
 	// HeapBytes is the memory currently held by live heap objects, and
 	// HeapObjects how many of them there are.
@@ -79,23 +79,23 @@ type Reading struct {
 // -- so the numbers in a Reading are consistent with each other, which they
 // would not be if each were read separately.
 func Read() Reading {
-	samples := make([]metrics.Sample, len(wanted))
-	for index, name := range wanted {
+	samples := make([]metrics.Sample, len(sampleNames))
+	for index, name := range sampleNames {
 		samples[index].Name = name
 	}
 	metrics.Read(samples)
 
-	held := map[string]metrics.Value{}
+	values := map[string]metrics.Value{}
 	for _, sample := range samples {
-		held[sample.Name] = sample.Value
+		values[sample.Name] = sample.Value
 	}
-	return reading(time.Now(), held)
+	return reading(time.Now(), values)
 }
 
-// wanted is what a reading is made of, and the only metrics this reads: the
+// sampleNames is what a reading is made of, and the only metrics this reads: the
 // full set is large, and reading all of it per refresh would make the
 // instrument part of what it measures.
-var wanted = []string{
+var sampleNames = []string{
 	"/memory/classes/heap/objects:bytes",
 	"/gc/heap/objects:objects",
 	"/gc/heap/live:bytes",
@@ -117,28 +117,28 @@ var wanted = []string{
 	"/gc/cycles/total:gc-cycles",
 }
 
-func reading(taken time.Time, held map[string]metrics.Value) Reading {
+func reading(now time.Time, values map[string]metrics.Value) Reading {
 	return Reading{
-		Taken:            taken,
-		HeapBytes:        whole(held, "/memory/classes/heap/objects:bytes"),
-		HeapObjects:      whole(held, "/gc/heap/objects:objects"),
-		LiveBytes:        whole(held, "/gc/heap/live:bytes"),
-		GoalBytes:        whole(held, "/gc/heap/goal:bytes"),
-		StackBytes:       whole(held, "/memory/classes/heap/stacks:bytes"),
-		TotalBytes:       whole(held, "/memory/classes/total:bytes"),
-		AllocatedBytes:   whole(held, "/gc/heap/allocs:bytes"),
-		AllocatedObjects: whole(held, "/gc/heap/allocs:objects"),
-		FreedBytes:       whole(held, "/gc/heap/frees:bytes"),
-		Goroutines:       whole(held, "/sched/goroutines:goroutines"),
-		Running:          whole(held, "/sched/goroutines/running:goroutines"),
-		Runnable:         whole(held, "/sched/goroutines/runnable:goroutines"),
-		Waiting:          whole(held, "/sched/goroutines/waiting:goroutines"),
-		Threads:          whole(held, "/sched/gomaxprocs:threads"),
-		CPUSeconds:       fraction(held, "/cpu/classes/total:cpu-seconds"),
-		UserCPUSeconds:   fraction(held, "/cpu/classes/user:cpu-seconds"),
-		GCCPUSeconds:     fraction(held, "/cpu/classes/gc/total:cpu-seconds"),
-		IdleCPUSeconds:   fraction(held, "/cpu/classes/idle:cpu-seconds"),
-		GCCycles:         whole(held, "/gc/cycles/total:gc-cycles"),
+		Time:             now,
+		HeapBytes:        whole(values, "/memory/classes/heap/objects:bytes"),
+		HeapObjects:      whole(values, "/gc/heap/objects:objects"),
+		LiveBytes:        whole(values, "/gc/heap/live:bytes"),
+		GoalBytes:        whole(values, "/gc/heap/goal:bytes"),
+		StackBytes:       whole(values, "/memory/classes/heap/stacks:bytes"),
+		TotalBytes:       whole(values, "/memory/classes/total:bytes"),
+		AllocatedBytes:   whole(values, "/gc/heap/allocs:bytes"),
+		AllocatedObjects: whole(values, "/gc/heap/allocs:objects"),
+		FreedBytes:       whole(values, "/gc/heap/frees:bytes"),
+		Goroutines:       whole(values, "/sched/goroutines:goroutines"),
+		Running:          whole(values, "/sched/goroutines/running:goroutines"),
+		Runnable:         whole(values, "/sched/goroutines/runnable:goroutines"),
+		Waiting:          whole(values, "/sched/goroutines/waiting:goroutines"),
+		Threads:          whole(values, "/sched/gomaxprocs:threads"),
+		CPUSeconds:       fraction(values, "/cpu/classes/total:cpu-seconds"),
+		UserCPUSeconds:   fraction(values, "/cpu/classes/user:cpu-seconds"),
+		GCCPUSeconds:     fraction(values, "/cpu/classes/gc/total:cpu-seconds"),
+		IdleCPUSeconds:   fraction(values, "/cpu/classes/idle:cpu-seconds"),
+		GCCycles:         whole(values, "/gc/cycles/total:gc-cycles"),
 	}
 }
 
@@ -148,16 +148,16 @@ func reading(taken time.Time, held map[string]metrics.Value) Reading {
 // A metric the runtime has dropped or renamed leaves a zero rather than
 // failing: an instrument that refuses to report anything because one number
 // moved is worse than one reporting the rest.
-func whole(held map[string]metrics.Value, name string) uint64 {
-	value, present := held[name]
+func whole(values map[string]metrics.Value, name string) uint64 {
+	value, present := values[name]
 	if !present || value.Kind() != metrics.KindUint64 {
 		return 0
 	}
 	return value.Uint64()
 }
 
-func fraction(held map[string]metrics.Value, name string) float64 {
-	value, present := held[name]
+func fraction(values map[string]metrics.Value, name string) float64 {
+	value, present := values[name]
 	if !present || value.Kind() != metrics.KindFloat64 {
 		return 0
 	}

@@ -16,18 +16,18 @@ import (
 // and puts the ordering where it can be reasoned about: first to last, on the
 // caller's fiber, so two observers cannot see the same run in two orders.
 //
-// It flushes what it holds, so a Fanout containing a Buffered is drained by
-// Runtime.Close exactly as the Buffered alone would be. A flush failure from
+// It flushes what it holds, so a Fanout containing a Buffer is drained by
+// Runtime.Close exactly as the Buffer alone would be. A flush failure from
 // one does not skip the others; the first is reported and the rest still run,
 // because a queue nobody drained is worse than a message nobody read.
 func Fanout(observers ...effect.Observer) effect.Observer {
-	kept := make([]effect.Observer, 0, len(observers))
+	targets := make([]effect.Observer, 0, len(observers))
 	for _, observer := range observers {
 		if observer != nil {
-			kept = append(kept, observer)
+			targets = append(targets, observer)
 		}
 	}
-	return fanout(kept)
+	return fanout(targets)
 }
 
 type fanout []effect.Observer
@@ -42,11 +42,11 @@ func (each fanout) Observe(ctx context.Context, event effect.RuntimeEvent) {
 func (each fanout) Flush(ctx context.Context) error {
 	var first error
 	for _, observer := range each {
-		buffering, buffers := observer.(effect.Flusher)
+		flusher, buffers := observer.(effect.Flusher)
 		if !buffers {
 			continue
 		}
-		if err := buffering.Flush(ctx); err != nil && first == nil {
+		if err := flusher.Flush(ctx); err != nil && first == nil {
 			first = err
 		}
 	}

@@ -27,10 +27,10 @@ A GUI over all of this is
 ## Layout
 
 ```text
-observe/                    delivery: Fanout, Filtered, Buffer, Keep
-trace/                      Span, Trace, Assemble, Identity, Watch, Fiber, WatchFibers
-metrics/                    Vocabulary, Label, Distribution, Collect
-process/                    Reading, Change, Series, Sizes, Costs, Run, Costing, Measured
+observe/                    delivery: Fanout, Filter, NewBuffer, NewRecent
+trace/                      Span, Trace, Assemble, Identity, NewSpans, Fiber, NewFibers
+metrics/                    Vocabulary, Label, Distribution, NewCollector
+process/                    Reading, Change, Series, Sizes, Costs, Run, Track, Measure
 examples/watching/          a program worth watching, and the watching of it
 examples/cmd/observedemo/   the example as a runnable command
 test/unit/                  behaviour of the public API
@@ -46,17 +46,17 @@ a span tree from also acquiring an aggregate.
 ## The shortest useful thing
 
 ```go
-watch := trace.Watch()
-collected := metrics.Collect(metrics.Naming("checkout", "charge"))
-window, _ := observe.Keep(1024)
+spans := trace.NewSpans()
+collector := metrics.NewCollector(metrics.NewVocabulary("checkout", "charge"))
+window, _ := observe.NewRecent(1024)
 
-queued, _ := observe.Buffer(observe.Fanout(collected, window), 4096, observe.DropOldest)
-runtime, _ := effect.NewRuntime(effect.WithObserver(observe.Fanout(watch, queued)))
+buffer, _ := observe.NewBuffer(observe.Fanout(collector, window), 4096, observe.DropOldest)
+runtime, _ := effect.NewRuntime(effect.WithObserver(observe.Fanout(spans, buffer)))
 
 // ... run the program, then:
 runtime.Close(ctx)                          // drains the queue
 fmt.Print(trace.Assemble(window.Events()).Render())
-fmt.Println(watch.Count(), "span(s) still open")
+fmt.Println(spans.Count(), "span(s) still open")
 ```
 
 The live span tracker is not behind the queue and the other two are, which is

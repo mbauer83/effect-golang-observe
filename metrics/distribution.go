@@ -72,19 +72,19 @@ func (distribution Distribution) bound(share float64) time.Duration {
 	// The rank is rounded up, not truncated: the median of three
 	// measurements is the second, and uint64(0.5*3) is the first -- which
 	// would report the thirty-third percentile under the median's name.
-	wanted := uint64(math.Ceil(share * float64(distribution.Count)))
-	if wanted == 0 {
-		wanted = 1
+	rank := uint64(math.Ceil(share * float64(distribution.Count)))
+	if rank == 0 {
+		rank = 1
 	}
 	for _, bucket := range distribution.Buckets {
-		if bucket.Count >= wanted {
+		if bucket.Count >= rank {
 			return bucket.AtMost
 		}
 	}
 	return distribution.Buckets[len(distribution.Buckets)-1].AtMost
 }
 
-// DefaultBounds are the bucket bounds a collector uses when the caller states
+// DefaultBoundaries are the bucket bounds a collector uses when the caller states
 // none: a microsecond to a minute, three to a decade.
 //
 // Chosen from what this actually measures, three times. Bounds starting at a
@@ -103,7 +103,7 @@ func (distribution Distribution) bound(share float64) time.Duration {
 // somebody else's service does take a minute, and a quantile pinned to the
 // last bound says only "at least this". Beyond it Max is the answer, which is
 // exact and is what every bound above the largest measurement collapses to.
-var DefaultBounds = []time.Duration{
+var DefaultBoundaries = []time.Duration{
 	time.Microsecond,
 	2 * time.Microsecond,
 	5 * time.Microsecond,
@@ -131,59 +131,59 @@ var DefaultBounds = []time.Duration{
 	time.Minute,
 }
 
-// bounded is a distribution being accumulated.
-type bounded struct {
-	bounds  []time.Duration
-	counts  []uint64
-	count   uint64
-	sum     time.Duration
-	least   time.Duration
-	largest time.Duration
+// histogram is a distribution being accumulated.
+type histogram struct {
+	boundaries []time.Duration
+	counts     []uint64
+	count      uint64
+	sum        time.Duration
+	least      time.Duration
+	largest    time.Duration
 }
 
-func newBounded(bounds []time.Duration) *bounded {
-	return &bounded{bounds: bounds, counts: make([]uint64, len(bounds))}
+func newHistogram(bounds []time.Duration) *histogram {
+	return &histogram{boundaries: bounds, counts: make([]uint64, len(bounds))}
 }
 
-func (accumulating *bounded) add(measured time.Duration) {
-	if accumulating.count == 0 || measured < accumulating.least {
-		accumulating.least = measured
+func (accumulator *histogram) add(duration time.Duration) {
+	if accumulator.count == 0 || duration < accumulator.least {
+		accumulator.least = duration
 	}
-	if measured > accumulating.largest {
-		accumulating.largest = measured
+	if duration > accumulator.largest {
+		accumulator.largest = duration
 	}
-	accumulating.count++
-	accumulating.sum += measured
+	accumulator.count++
+	accumulator.sum += duration
 	// Cumulative, so a measurement counts in its own bucket and every wider
 	// one. A measurement past the last bound counts in none, and Count still
 	// includes it -- which is how a reader tells "everything was fast" from
 	// "the bounds are too narrow for this".
-	for index, bound := range accumulating.bounds {
-		if measured <= bound {
-			accumulating.counts[index]++
+	for index, bound := range accumulator.boundaries {
+		if duration <= bound {
+			accumulator.counts[index]++
 		}
 	}
 }
 
-func (accumulating *bounded) snapshot() Distribution {
-	buckets := make([]Bucket, 0, len(accumulating.bounds))
-	for index, bound := range accumulating.bounds {
-		buckets = append(buckets, Bucket{AtMost: bound, Count: accumulating.counts[index]})
+func (accumulator *histogram) snapshot() Distribution {
+	buckets := make([]Bucket, 0, len(accumulator.boundaries))
+	for index, bound := range accumulator.boundaries {
+		buckets = append(buckets, Bucket{AtMost: bound, Count: accumulator.counts[index]})
 	}
 	return Distribution{
-		Count:   accumulating.count,
-		Sum:     accumulating.sum,
-		Min:     accumulating.least,
-		Max:     accumulating.largest,
+		Count:   accumulator.count,
+		Sum:     accumulator.sum,
+		Min:     accumulator.least,
+		Max:     accumulator.largest,
 		Buckets: buckets,
 	}
 }
 
-// sortedBounds keeps the bounds ascending and without repeats, so the buckets
+// sortBoundaries keeps the bounds ascending and without repeats, so the buckets
 // are cumulative in the order they are read.
-func sortedBounds(bounds []time.Duration) []time.Duration {
+func sortBoundaries(bounds []time.Duration) []time.Duration {
 	if len(bounds) == 0 {
-		return slices.Clone(DefaultBounds)
+		return slices.Clone(DefaultBoundaries)
 	}
 	sorted := slices.Clone(bounds)
 	slices.Sort(sorted)

@@ -19,11 +19,11 @@ import (
 	"github.com/mbauer83/effect-golang/effect"
 )
 
-// watched runs the example program under the example's own telemetry and
+// runRestock runs the example program under the example's own telemetry and
 // closes the runtime, which is what drains the queue.
-func watched(t *testing.T, items ...string) (*watching.Watch, effect.Exit[watching.Refusal, []int]) {
+func runRestock(t *testing.T, items ...string) (*watching.Watch, effect.Exit[watching.Refusal, []int]) {
 	t.Helper()
-	watch, err := watching.Watching(256, "restock", "item", "read-level")
+	watch, err := watching.NewWatch(256, "restock", "item", "read-level")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,18 +46,18 @@ func watched(t *testing.T, items ...string) (*watching.Watch, effect.Exit[watchi
 }
 
 func TestTheTraceHasTheShapeTheProgramRan(t *testing.T) {
-	watch, exit := watched(t, "lamp", "pallet", "unstocked-widget")
+	watch, exit := runRestock(t, "lamp", "pallet", "unstocked-widget")
 	if !exit.IsFailure() {
 		t.Fatalf("expected the unstocked item to refuse the program, got %v", exit)
 	}
 
-	assembled := watch.Trace()
-	if len(assembled.Roots) != 1 || assembled.Roots[0].Name != "restock" {
-		t.Fatalf("expected one root span, got %v", named(assembled.Roots))
+	tree := watch.Trace()
+	if len(tree.Roots) != 1 || tree.Roots[0].Name != "restock" {
+		t.Fatalf("expected one root span, got %v", spanNames(tree.Roots))
 	}
-	restock := assembled.Roots[0]
+	restock := tree.Roots[0]
 	if len(restock.Children) != 3 {
-		t.Fatalf("expected a child span per item, got %v", named(restock.Children))
+		t.Fatalf("expected a child span per item, got %v", spanNames(restock.Children))
 	}
 	// The retries happened inside the item's span, which is the assumption the
 	// whole fold rests on: a non-span event carries the span it happened in.
@@ -81,16 +81,16 @@ func TestTheTraceHasTheShapeTheProgramRan(t *testing.T) {
 }
 
 func TestTheFailingItemIsTheOneTheTraceNames(t *testing.T) {
-	watch, _ := watched(t, "lamp", "unstocked-widget")
+	watch, _ := runRestock(t, "lamp", "unstocked-widget")
 
-	failed := watch.Trace().Failed()
+	failed := watch.Trace().Unsuccessful()
 	// The root and the one item: a failure that reached the root is still the
 	// root's outcome, and reporting only the leaf would hide that.
 	if len(failed) != 2 {
-		t.Fatalf("expected the item and the root, got %v", named(failed))
+		t.Fatalf("expected the item and the root, got %v", spanNames(failed))
 	}
 	if failed[0].Name != "restock" || failed[1].Name != "item" {
-		t.Fatalf("expected the root then the item, got %v", named(failed))
+		t.Fatalf("expected the root then the item, got %v", spanNames(failed))
 	}
 	if exhausted := retriesExhausted(watch.Trace()); exhausted != 1 {
 		t.Fatalf("expected the one exhausted retry, got %d", exhausted)
@@ -100,23 +100,23 @@ func TestTheFailingItemIsTheOneTheTraceNames(t *testing.T) {
 func TestNothingIsLeftOpenWhenTheProgramHasFinished(t *testing.T) {
 	// The live tracker's whole claim: a span costs memory while it runs and
 	// nothing afterwards.
-	watch, _ := watched(t, "lamp", "pallet")
+	watch, _ := runRestock(t, "lamp", "pallet")
 
-	if count := watch.Running.Count(); count != 0 {
-		t.Fatalf("expected nothing open, got %v", named(watch.Running.Open()))
+	if count := watch.Spans.Count(); count != 0 {
+		t.Fatalf("expected nothing open, got %v", spanNames(watch.Spans.Open()))
 	}
-	if started, ended := watch.Running.Started(), watch.Running.Ended(); started != ended {
+	if started, ended := watch.Spans.Starts(), watch.Spans.Ends(); started != ended {
 		t.Fatalf("expected every span it saw start to have ended, got %d and %d", started, ended)
 	}
 	if open := watch.Trace().Open(); len(open) != 0 {
-		t.Fatalf("expected no open span in the trace either, got %v", named(open))
+		t.Fatalf("expected no open span in the trace either, got %v", spanNames(open))
 	}
 }
 
 func TestClosingTheRuntimeIsWhatDeliversAQueuedObserversEvents(t *testing.T) {
 	// The Flusher wiring, end to end: the window is behind a queue, so what
 	// it holds before the runtime closes is not what it holds after.
-	watch, err := watching.Watching(256, "restock")
+	watch, err := watching.NewWatch(256, "restock")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,53 +129,53 @@ func TestClosingTheRuntimeIsWhatDeliversAQueuedObserversEvents(t *testing.T) {
 	if cleanup := runtime.Close(context.Background()); !cleanup.IsEmpty() {
 		t.Fatalf("closing reported %s", cleanup)
 	}
-	if seen := watch.Window.Seen(); seen == 0 {
+	if seen := watch.Window.Count(); seen == 0 {
 		t.Fatal("expected the queue drained into the window by Close")
 	}
-	if dropped := watch.Dropped(); dropped != 0 {
+	if dropped := watch.Drops(); dropped != 0 {
 		t.Fatalf("expected a window of this size to lose nothing, got %d", dropped)
 	}
 }
 
 func TestMeasurementsCountTheWorkAndBoundTheirOwnLabels(t *testing.T) {
-	watch, _ := watched(t, "lamp", "pallet", "unstocked-widget")
-	taken := watch.Collected.Snapshot()
+	watch, _ := runRestock(t, "lamp", "pallet", "unstocked-widget")
+	snapshot := watch.Collector.Snapshot()
 
 	// Three items, each its own span.
 	succeeded := metrics.Label{
 		Kind: effect.EventSpanEnded, Status: effect.EventStatusSuccess, Operation: "item",
 	}
-	if counted := taken.Counts[succeeded]; counted != 2 {
-		t.Fatalf("expected two items to have succeeded, got %d", counted)
+	if count := snapshot.Counts[succeeded]; count != 2 {
+		t.Fatalf("expected two items to have succeeded, got %d", count)
 	}
-	if unsuccessful := taken.Unsuccessful(effect.EventSpanEnded); unsuccessful != 2 {
+	if unsuccessful := snapshot.Unsuccessful(effect.EventSpanEnded); unsuccessful != 2 {
 		t.Fatalf("expected the failing item and the root, got %d", unsuccessful)
 	}
 	// The runtime's own events name no operation, so they are measured under
 	// Unnamed -- which is not Other: "this names no operation" and "this
 	// names one nobody declared" are different facts, and a reader who cannot
 	// tell them apart goes looking for work that does not exist.
-	held := map[string]bool{}
-	for _, label := range taken.Labels() {
-		held[label.Operation] = true
+	operations := map[string]bool{}
+	for _, label := range snapshot.Labels() {
+		operations[label.Operation] = true
 	}
-	if !held[metrics.Unnamed] {
-		t.Fatalf("expected the runtime's own events under Unnamed, got %v", taken.Labels())
+	if !operations[metrics.Unnamed] {
+		t.Fatalf("expected the runtime's own events under Unnamed, got %v", snapshot.Labels())
 	}
 	// And the count of labels is bounded by the vocabulary either way: the
 	// declared names, Other, and Unnamed.
-	for operation := range held {
+	for operation := range operations {
 		if operation != metrics.Unnamed && operation != metrics.Other &&
 			!slices.Contains([]string{"restock", "item", "read-level"}, operation) {
 			t.Fatalf("expected a declared name, Other or Unnamed, got %q", operation)
 		}
 	}
-	if held := taken.Durations[succeeded]; held.Count != 2 || held.Max == 0 {
-		t.Fatalf("expected both items measured, got %+v", held)
+	if distribution := snapshot.Durations[succeeded]; distribution.Count != 2 || distribution.Max == 0 {
+		t.Fatalf("expected both items measured, got %+v", distribution)
 	}
 }
 
-func named(spans []trace.Span) []string {
+func spanNames(spans []trace.Span) []string {
 	names := make([]string, 0, len(spans))
 	for _, span := range spans {
 		names = append(names, span.Name)
@@ -183,14 +183,14 @@ func named(spans []trace.Span) []string {
 	return names
 }
 
-func retriesExhausted(assembled trace.Trace) int {
-	counted := 0
-	for _, span := range assembled.Spans() {
+func retriesExhausted(tree trace.Trace) int {
+	count := 0
+	for _, span := range tree.Spans() {
 		for _, event := range span.Events {
 			if event.Kind == effect.EventRetryExhausted {
-				counted++
+				count++
 			}
 		}
 	}
-	return counted
+	return count
 }

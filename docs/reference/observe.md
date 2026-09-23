@@ -7,12 +7,12 @@ composes with any other.
 
 ```go
 observe.Fanout(observers ...effect.Observer) effect.Observer
-observe.Filtered(observer effect.Observer, keep Keeping) effect.Observer
-observe.Buffer(observer effect.Observer, capacity int, overflow Overflow) (*Buffered, error)
-observe.Keep(capacity int) (*Recent, error)
+observe.Filter(observer effect.Observer, keep Predicate) effect.Observer
+observe.NewBuffer(observer effect.Observer, capacity int, overflow Overflow) (*Buffer, error)
+observe.NewRecent(capacity int) (*Recent, error)
 
-observe.OfKind(kinds ...effect.EventKind) Keeping
-observe.Failed() Keeping
+observe.OfKind(kinds ...effect.EventKind) Predicate
+observe.Unsuccessful() Predicate
 ```
 
 ## Why any of this is needed
@@ -29,8 +29,8 @@ A runtime takes one observer and a program usually wants three. `Fanout`
 delivers to each in the order given, on the caller's fiber, so two observers
 cannot see the same run in two different orders.
 
-It is a `Flusher`, so a `Fanout` holding a `Buffered` is drained by
-`Runtime.Close` exactly as the `Buffered` alone would be. A refusal from one
+It is a `Flusher`, so a `Fanout` holding a `Buffer` is drained by
+`Runtime.Close` exactly as the `Buffer` alone would be. A refusal from one
 observer does not skip the others — the first is reported and the rest still
 drain, because a queue nobody emptied is worse than a message nobody read.
 
@@ -40,7 +40,7 @@ report for a mistake this can absorb.
 
 ## Selection
 
-`Filtered` is where the cost of observing is decided. Every event crosses it on
+`Filter` is where the cost of observing is decided. Every event crosses it on
 the emitting fiber, so a predicate that rejects early is what makes an
 expensive observer affordable — and rejecting here means the observer never has
 to know it is being filtered.
@@ -52,7 +52,7 @@ subject of [the metrics reference](metrics.md).
 ## The queue
 
 ```go
-buffered, err := observe.Buffer(exporter, 4096, observe.DropOldest)
+buffered, err := observe.NewBuffer(exporter, 4096, observe.DropOldest)
 ```
 
 Three named overflow policies rather than a flag, because "true" does not say
@@ -87,7 +87,7 @@ the event that says the runtime closed.
 
 ## The window
 
-`Keep` holds the last *n* events and forgets the rest. A run of any length
+`NewRecent` holds the last *n* events and forgets the rest. A run of any length
 emits more events than anything wants to hold, so the question a debugger asks
 is not "what happened" but "what happened just now" — and a fixed window is the
 only way an observer installed for the life of a program may answer it.

@@ -20,32 +20,32 @@ import "time"
 // per-goroutine allocation counter and this package holds no spans -- and the
 // clock does.
 type Run struct {
-	Ended  time.Time
-	Change Change
+	EndTime time.Time
+	Change  Change
 }
 
-// KeptRuns is how many runs of each name are kept.
+// MaxRuns is how many runs of each name are kept.
 //
 // Bounded like everything else here: the names are bounded, so this bounds the
 // whole of it. The number is chosen against what it is for -- a trace a tool
 // is still showing should still have its runs -- and thirty-two was not
 // enough: a name that runs twice a second outlives its runs in sixteen
 // seconds, and a window of traces is longer than that.
-const KeptRuns = 256
+const MaxRuns = 256
 
 // runs keeps the most recent runs of one name in a ring.
 type runs struct {
-	held []Run
-	next int
-	full bool
+	slots []Run
+	next  int
+	full  bool
 }
 
 func (ring *runs) add(run Run) {
-	if ring.held == nil {
-		ring.held = make([]Run, KeptRuns)
+	if ring.slots == nil {
+		ring.slots = make([]Run, MaxRuns)
 	}
-	ring.held[ring.next] = run
-	ring.next = (ring.next + 1) % KeptRuns
+	ring.slots[ring.next] = run
+	ring.next = (ring.next + 1) % MaxRuns
 	if ring.next == 0 {
 		ring.full = true
 	}
@@ -55,12 +55,12 @@ func (ring *runs) add(run Run) {
 func (ring *runs) recent() []Run {
 	count := ring.next
 	if ring.full {
-		count = KeptRuns
+		count = MaxRuns
 	}
-	taken := make([]Run, 0, count)
+	latest := make([]Run, 0, count)
 	for step := 1; step <= count; step++ {
-		at := (ring.next - step + KeptRuns) % KeptRuns
-		taken = append(taken, ring.held[at])
+		at := (ring.next - step + MaxRuns) % MaxRuns
+		latest = append(latest, ring.slots[at])
 	}
-	return taken
+	return latest
 }

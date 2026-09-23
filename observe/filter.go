@@ -8,47 +8,47 @@ import (
 	"github.com/mbauer83/effect-golang/effect"
 )
 
-// Keeping decides whether one event is delivered.
+// Predicate decides whether one event is delivered.
 //
 // A function rather than a set of kinds, because the useful questions are not
 // all about the kind: a tool watching one operation, or only what failed, or
 // only what took longer than a threshold, all ask something a list of kinds
 // cannot answer. OfKind composes the common case out of it.
-type Keeping func(effect.RuntimeEvent) bool
+type Predicate func(effect.RuntimeEvent) bool
 
-// Filtered delivers only the events the predicate keeps.
+// Filter delivers only the events the predicate keeps.
 //
 // It is where the cost of observing is decided. Every event the runtime emits
 // crosses this on the fiber that emitted it, so a predicate that rejects early
 // is what makes an expensive observer affordable -- and rejecting here rather
 // than inside the observer means the observer never has to know it is being
 // sampled.
-func Filtered(observer effect.Observer, keep Keeping) effect.Observer {
-	if observer == nil || keep == nil {
+func Filter(observer effect.Observer, predicate Predicate) effect.Observer {
+	if observer == nil || predicate == nil {
 		return Fanout()
 	}
-	return filtered{observer: observer, keep: keep}
+	return filter{observer: observer, predicate: predicate}
 }
 
-type filtered struct {
-	observer effect.Observer
-	keep     Keeping
+type filter struct {
+	observer  effect.Observer
+	predicate Predicate
 }
 
-func (only filtered) Observe(ctx context.Context, event effect.RuntimeEvent) {
-	if only.keep(event) {
+func (only filter) Observe(ctx context.Context, event effect.RuntimeEvent) {
+	if only.predicate(event) {
 		only.observer.Observe(ctx, event)
 	}
 }
 
 // Flush drains the observer behind the filter. A filter drops events; it does
 // not change whether what got through still has to be delivered.
-func (only filtered) Flush(ctx context.Context) error {
-	buffering, buffers := only.observer.(effect.Flusher)
+func (only filter) Flush(ctx context.Context) error {
+	flusher, buffers := only.observer.(effect.Flusher)
 	if !buffers {
 		return nil
 	}
-	return buffering.Flush(ctx)
+	return flusher.Flush(ctx)
 }
 
 // OfKind keeps the events whose kind is one of those named.
@@ -56,20 +56,20 @@ func (only filtered) Flush(ctx context.Context) error {
 // The kinds are a bounded vocabulary, which is what makes this safe to build a
 // map from: an operation name or an attribute value is unbounded and would
 // make the map the memory leak.
-func OfKind(kinds ...effect.EventKind) Keeping {
-	wanted := make(map[effect.EventKind]bool, len(kinds))
+func OfKind(kinds ...effect.EventKind) Predicate {
+	members := make(map[effect.EventKind]bool, len(kinds))
 	for _, kind := range kinds {
-		wanted[kind] = true
+		members[kind] = true
 	}
-	return func(event effect.RuntimeEvent) bool { return wanted[event.Kind] }
+	return func(event effect.RuntimeEvent) bool { return members[event.Kind] }
 }
 
-// Failed keeps the events whose status says the work did not succeed.
+// Unsuccessful keeps the events whose status says the work did not succeed.
 //
 // The three that are not success are separate statuses on purpose -- a defect
 // is not a typed failure and neither is an interruption -- so a tool that wants
 // one of them says which. This is for the tool that wants all three.
-func Failed() Keeping {
+func Unsuccessful() Predicate {
 	return func(event effect.RuntimeEvent) bool {
 		switch event.Status {
 		case effect.EventStatusFailure, effect.EventStatusDefect,

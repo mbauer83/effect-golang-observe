@@ -18,7 +18,7 @@ import (
 
 // Watch is everything a program needs to answer for itself.
 type Watch struct {
-	// Running is the spans open right now, and Fibers the fibers. Neither is
+	// Spans is the spans open right now, and Fibers the fibers. Neither is
 	// buffered: the question is what is happening at this instant, and an
 	// answer waiting in a queue is the wrong answer to it.
 	//
@@ -26,40 +26,40 @@ type Watch struct {
 	// logical structure -- what the program said it was doing -- and a fiber
 	// is the execution one. A program that has stopped responding is found
 	// through the second.
-	Running *trace.Running
-	Fibers  *trace.Fibers
-	// Collected is the bounded aggregate, and Window the recent events the
+	Spans  *trace.Spans
+	Fibers *trace.Fibers
+	// Collector is the bounded aggregate, and Window the recent events the
 	// trace is folded from. Both are behind the queue, because neither is
 	// asked often enough to be worth paying for on the observed fiber.
-	Collected *metrics.Collector
+	Collector *metrics.Collector
 	Window    *observe.Recent
 
-	queued   *observe.Buffered
+	buffer   *observe.Buffer
 	observer effect.Observer
 }
 
-// Watching assembles the telemetry, labelling measurements by the operations
+// NewWatch assembles the telemetry, labelling measurements by the operations
 // named and everything else as metrics.Other.
-func Watching(window int, operations ...string) (*Watch, error) {
-	recent, err := observe.Keep(window)
+func NewWatch(window int, operations ...string) (*Watch, error) {
+	recent, err := observe.NewRecent(window)
 	if err != nil {
 		return nil, err
 	}
 	watch := &Watch{
-		Running:   trace.Watch(),
-		Fibers:    trace.WatchFibers(),
-		Collected: metrics.Collect(metrics.Naming(operations...)),
+		Spans:     trace.NewSpans(),
+		Fibers:    trace.NewFibers(),
+		Collector: metrics.NewCollector(metrics.NewVocabulary(operations...)),
 		Window:    recent,
 	}
 	// DropOldest, because what these two answer is what happened recently: a
 	// queue under pressure should lose the events nobody is going to ask
 	// about rather than the ones they will.
-	watch.queued, err = observe.Buffer(
-		observe.Fanout(watch.Collected, watch.Window), 1024, observe.DropOldest)
+	watch.buffer, err = observe.NewBuffer(
+		observe.Fanout(watch.Collector, watch.Window), 1024, observe.DropOldest)
 	if err != nil {
 		return nil, err
 	}
-	watch.observer = observe.Fanout(watch.Running, watch.Fibers, watch.queued)
+	watch.observer = observe.Fanout(watch.Spans, watch.Fibers, watch.buffer)
 	return watch, nil
 }
 
@@ -77,8 +77,8 @@ func (watch *Watch) Trace() trace.Trace {
 	return trace.Assemble(watch.Window.Events())
 }
 
-// Dropped is how many events the queue discarded, which a program reporting
+// Drops is how many events the queue discarded, which a program reporting
 // its own telemetry should report too.
-func (watch *Watch) Dropped() uint64 {
-	return watch.queued.Dropped()
+func (watch *Watch) Drops() uint64 {
+	return watch.buffer.Drops()
 }

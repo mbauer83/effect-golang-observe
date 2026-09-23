@@ -24,10 +24,10 @@ type Span struct {
 	// others, which is what makes the fiber worth keeping beside the span.
 	FiberID uint64
 
-	Started time.Time
-	// Ended and Duration are the runtime's measurement, not a subtraction of
+	StartTime time.Time
+	// EndTime and Duration are the runtime's measurement, not a subtraction of
 	// two wall-clock readings. They are zero while the span is open.
-	Ended    time.Time
+	EndTime  time.Time
 	Duration time.Duration
 	Status   effect.EventStatus
 
@@ -41,13 +41,13 @@ type Span struct {
 	Events []effect.RuntimeEvent
 }
 
-// Open says the span started and has not been seen to end.
+// IsOpen says the span started and has not been seen to end.
 //
 // Which is a report and not a gap: a span still open when a run ended is where
 // a hung program is, and the whole reason an unfinished span is kept rather
 // than dropped for being incomplete.
-func (span Span) Open() bool {
-	return span.Ended.IsZero()
+func (span Span) IsOpen() bool {
+	return span.EndTime.IsZero()
 }
 
 // Age is how long an open span has been open, and how long a finished one
@@ -59,15 +59,15 @@ func (span Span) Open() bool {
 // Duration cannot answer it, because the runtime measures a span when it ends
 // and an open span has not.
 func (span Span) Age(now time.Time) time.Duration {
-	if !span.Open() {
+	if !span.IsOpen() {
 		return span.Duration
 	}
-	return now.Sub(span.Started)
+	return now.Sub(span.StartTime)
 }
 
-// Failed says the span ended in something other than success. It is false for
+// IsUnsuccessful says the span ended in something other than success. It is false for
 // an open span, which has not ended in anything yet.
-func (span Span) Failed() bool {
+func (span Span) IsUnsuccessful() bool {
 	switch span.Status {
 	case effect.EventStatusFailure, effect.EventStatusDefect,
 		effect.EventStatusInterrupted:
@@ -89,7 +89,7 @@ func (span Span) Failed() bool {
 // than the parent's wall-clock, and a negative self time would be a strange
 // way to report concurrency.
 func (span Span) Self() time.Duration {
-	if span.Open() {
+	if span.IsOpen() {
 		return 0
 	}
 	inside := time.Duration(0)
@@ -104,9 +104,9 @@ func (span Span) Self() time.Duration {
 
 // Descendants counts the spans beneath this one.
 func (span Span) Descendants() int {
-	counted := 0
+	count := 0
 	for _, child := range span.Children {
-		counted += 1 + child.Descendants()
+		count += 1 + child.Descendants()
 	}
-	return counted
+	return count
 }

@@ -16,7 +16,7 @@ for the same reason, and `Age` exists on both `Span` and `Fiber` because
 `Duration` cannot answer it — the runtime measures work when it *ends*.
 
 **Fibers are a tree, walked from the roots.** `Fiber.dumpAllWith` starts at
-`Fiber.roots` and recurses through each fiber's children. `Fibers.Running`
+`Fiber.roots` and recurses through each fiber's children. `Fibers.Tree`
 does the same from `ParentFiber`, and takes the same view of an orphan: a
 fiber whose forker is gone is a root, not a hole.
 
@@ -47,7 +47,7 @@ that this module took:
   waterfall needs, and it is why the inspector's wire shape has an offset per
   span rather than a duration alone.
 - **span status is a sum, not a flag.** A span either started or ended, and an
-  ended one has an exit. `Span.Open()` plus a zero `Duration` is the flattened
+  ended one has an exit. `Span.IsOpen()` plus a zero `Duration` is the flattened
   form of the same statement, and `Open` is a question rather than an absence
   for that reason.
 

@@ -14,20 +14,20 @@ import (
 )
 
 func TestAssembleNestsSpansUnderTheOnesThatEnclosedThem(t *testing.T) {
-	assembled := trace.Assemble([]effect.RuntimeEvent{
+	tree := trace.Assemble([]effect.RuntimeEvent{
 		spanStarted(1, 0, "outer", 0),
 		spanStarted(2, 1, "inner", time.Millisecond),
-		within(2, effect.EventRetryScheduled, "inner"),
+		eventIn(2, effect.EventRetryScheduled, "inner"),
 		spanEnded(2, 1, "inner", 2*time.Millisecond, time.Millisecond, effect.EventStatusSuccess),
 		spanStarted(3, 1, "sibling", 3*time.Millisecond),
 		spanEnded(3, 1, "sibling", 4*time.Millisecond, time.Millisecond, effect.EventStatusFailure),
 		spanEnded(1, 0, "outer", 5*time.Millisecond, 5*time.Millisecond, effect.EventStatusSuccess),
 	})
 
-	if len(assembled.Roots) != 1 || assembled.Roots[0].Name != "outer" {
-		t.Fatalf("expected one root, got %v", assembled.Roots)
+	if len(tree.Roots) != 1 || tree.Roots[0].Name != "outer" {
+		t.Fatalf("expected one root, got %v", tree.Roots)
 	}
-	outer := assembled.Roots[0]
+	outer := tree.Roots[0]
 	if len(outer.Children) != 2 {
 		t.Fatalf("expected two children, got %d", len(outer.Children))
 	}
@@ -58,21 +58,21 @@ func TestASpanThatNeverEndedStaysOpen(t *testing.T) {
 	// The report, not a gap: a span still open when the events ran out is
 	// where a program that stopped responding is, and dropping it for being
 	// incomplete would hide exactly that.
-	assembled := trace.Assemble([]effect.RuntimeEvent{
+	tree := trace.Assemble([]effect.RuntimeEvent{
 		spanStarted(1, 0, "waiting", 0),
 		spanStarted(2, 1, "finished", time.Millisecond),
 		spanEnded(2, 1, "finished", 2*time.Millisecond, time.Millisecond, effect.EventStatusSuccess),
 	})
 
-	open := assembled.Open()
+	open := tree.Open()
 	if len(open) != 1 || open[0].Name != "waiting" {
 		t.Fatalf("expected the unfinished span reported open, got %v", open)
 	}
-	if open[0].Duration != 0 || !open[0].Ended.IsZero() {
+	if open[0].Duration != 0 || !open[0].EndTime.IsZero() {
 		t.Fatalf("expected no measurement for a span that has not ended, got %+v", open[0])
 	}
 	// An open span has not ended in anything, so it has not failed either.
-	if open[0].Failed() {
+	if open[0].IsUnsuccessful() {
 		t.Error("expected an open span not to count as failed")
 	}
 }
@@ -80,32 +80,32 @@ func TestASpanThatNeverEndedStaysOpen(t *testing.T) {
 func TestAnEndWithoutAStartIsLooseRatherThanAHalfSpan(t *testing.T) {
 	// What a window that begins mid-run looks like. Inventing a span for the
 	// end would put one in the tree that nothing observed.
-	assembled := trace.Assemble([]effect.RuntimeEvent{
-		within(9, effect.EventResourceReleased, "gone"),
+	tree := trace.Assemble([]effect.RuntimeEvent{
+		eventIn(9, effect.EventResourceReleased, "gone"),
 		spanEnded(9, 0, "gone", time.Millisecond, time.Millisecond, effect.EventStatusSuccess),
 	})
 
-	if len(assembled.Roots) != 0 {
-		t.Fatalf("expected no spans, got %v", assembled.Roots)
+	if len(tree.Roots) != 0 {
+		t.Fatalf("expected no spans, got %v", tree.Roots)
 	}
-	if len(assembled.Loose) != 2 {
-		t.Fatalf("expected both events loose, got %v", assembled.Loose)
+	if len(tree.Loose) != 2 {
+		t.Fatalf("expected both events loose, got %v", tree.Loose)
 	}
 }
 
 func TestASpanWhoseParentIsOutsideTheWindowIsARootHere(t *testing.T) {
-	assembled := trace.Assemble([]effect.RuntimeEvent{
+	tree := trace.Assemble([]effect.RuntimeEvent{
 		spanStarted(2, 1, "orphaned", 0),
 		spanEnded(2, 1, "orphaned", time.Millisecond, time.Millisecond, effect.EventStatusSuccess),
 	})
 
-	if len(assembled.Roots) != 1 || assembled.Roots[0].Name != "orphaned" {
-		t.Fatalf("expected the span rooted here, got %v", assembled.Roots)
+	if len(tree.Roots) != 1 || tree.Roots[0].Name != "orphaned" {
+		t.Fatalf("expected the span rooted here, got %v", tree.Roots)
 	}
 	// The parent it names is still recorded, because it is true and a reader
 	// stitching two windows together needs it.
-	if assembled.Roots[0].ParentID != 1 {
-		t.Fatalf("expected the parent it named kept, got %d", assembled.Roots[0].ParentID)
+	if tree.Roots[0].ParentID != 1 {
+		t.Fatalf("expected the parent it named kept, got %d", tree.Roots[0].ParentID)
 	}
 }
 
@@ -114,30 +114,30 @@ func TestTheEndsAttributesJoinTheStartsWithoutRepeatingThem(t *testing.T) {
 	// inherited attribute arrives twice and something the work found out
 	// arrives only at the end.
 	component := slog.String("component", "catalog")
-	assembled := trace.Assemble([]effect.RuntimeEvent{
-		attributed(spanStarted(1, 0, "load", 0), component),
-		attributed(spanEnded(1, 0, "load", time.Millisecond, time.Millisecond,
+	tree := trace.Assemble([]effect.RuntimeEvent{
+		withAttributes(spanStarted(1, 0, "load", 0), component),
+		withAttributes(spanEnded(1, 0, "load", time.Millisecond, time.Millisecond,
 			effect.EventStatusSuccess), component, slog.Int("found", 3)),
 	})
 
-	held := assembled.Roots[0].Attributes
-	if len(held) != 2 {
-		t.Fatalf("expected the repeat collapsed and the new one kept, got %v", held)
+	attributes := tree.Roots[0].Attributes
+	if len(attributes) != 2 {
+		t.Fatalf("expected the repeat collapsed and the new one kept, got %v", attributes)
 	}
-	if held[0].Key != "component" || held[1].Key != "found" {
-		t.Fatalf("expected the start's first, got %v", held)
+	if attributes[0].Key != "component" || attributes[1].Key != "found" {
+		t.Fatalf("expected the start's first, got %v", attributes)
 	}
 }
 
 func TestRenderingIsStableAndSaysWhatEachSpanDid(t *testing.T) {
-	assembled := trace.Assemble([]effect.RuntimeEvent{
+	tree := trace.Assemble([]effect.RuntimeEvent{
 		spanStarted(1, 0, "outer", 0),
 		spanStarted(2, 1, "inner", time.Millisecond),
-		within(2, effect.EventRetryScheduled, "inner"),
+		eventIn(2, effect.EventRetryScheduled, "inner"),
 		spanEnded(2, 1, "inner", 2*time.Millisecond, 2*time.Millisecond, effect.EventStatusFailure),
 		spanStarted(3, 1, "unfinished", 3*time.Millisecond),
 		spanEnded(1, 0, "outer", 5*time.Millisecond, 5*time.Millisecond, effect.EventStatusSuccess),
-		within(0, effect.EventRuntimeClosed, ""),
+		eventIn(0, effect.EventRuntimeClosed, ""),
 	})
 
 	const expected = "outer 5ms success\n" +
@@ -145,18 +145,18 @@ func TestRenderingIsStableAndSaysWhatEachSpanDid(t *testing.T) {
 		"    - retry_scheduled inner\n" +
 		"  unfinished open\n" +
 		"outside every span: 1 event(s)\n"
-	if rendered := assembled.Render(); rendered != expected {
+	if rendered := tree.Render(); rendered != expected {
 		t.Fatalf("unexpected rendering:\n%s\nexpected:\n%s", rendered, expected)
 	}
 	// Twice, because a rendering a test can compare against is one that does
 	// not depend on a map's iteration order.
-	if again := assembled.Render(); again != expected {
+	if again := tree.Render(); again != expected {
 		t.Fatalf("the same trace rendered differently:\n%s", again)
 	}
-	if failed := assembled.Failed(); len(failed) != 1 || failed[0].Name != "inner" {
+	if failed := tree.Unsuccessful(); len(failed) != 1 || failed[0].Name != "inner" {
 		t.Fatalf("expected the one failed span, got %v", failed)
 	}
-	if spans := assembled.Spans(); len(spans) != 3 {
+	if spans := tree.Spans(); len(spans) != 3 {
 		t.Fatalf("expected every span, got %d", len(spans))
 	}
 }
@@ -165,12 +165,12 @@ func TestASpansOwnEventsAndItsChildrenRenderInTheOrderTheyHappened(t *testing.T)
 	// A scope that closed after its children ran must not be printed before
 	// them: events first and children second reads as a different program
 	// from the one that ran.
-	assembled := trace.Assemble([]effect.RuntimeEvent{
+	tree := trace.Assemble([]effect.RuntimeEvent{
 		spanStarted(1, 0, "holding", 0),
-		earlier(within(1, effect.EventScopeOpened, "holding"), time.Millisecond),
+		backdate(eventIn(1, effect.EventScopeOpened, "holding"), time.Millisecond),
 		spanStarted(2, 1, "inside", 2*time.Millisecond),
 		spanEnded(2, 1, "inside", 3*time.Millisecond, time.Millisecond, effect.EventStatusSuccess),
-		earlier(within(1, effect.EventScopeClosed, "holding"), 4*time.Millisecond),
+		backdate(eventIn(1, effect.EventScopeClosed, "holding"), 4*time.Millisecond),
 		spanEnded(1, 0, "holding", 5*time.Millisecond, 5*time.Millisecond, effect.EventStatusSuccess),
 	})
 
@@ -178,7 +178,7 @@ func TestASpansOwnEventsAndItsChildrenRenderInTheOrderTheyHappened(t *testing.T)
 		"  - scope_opened holding\n" +
 		"  inside 1ms success\n" +
 		"  - scope_closed holding\n"
-	if rendered := assembled.Render(); rendered != expected {
+	if rendered := tree.Render(); rendered != expected {
 		t.Fatalf("unexpected rendering:\n%s\nexpected:\n%s", rendered, expected)
 	}
 }
@@ -187,7 +187,7 @@ func TestSelfTimeIsWhatASpansChildrenDidNotTake(t *testing.T) {
 	// What "hot" means. A span that spent almost all of itself inside one
 	// child is not where the time went, and ranking by total duration would
 	// blame it anyway.
-	assembled := trace.Assemble([]effect.RuntimeEvent{
+	tree := trace.Assemble([]effect.RuntimeEvent{
 		spanStarted(1, 0, "outer", 0),
 		spanStarted(2, 1, "inner", time.Millisecond),
 		spanEnded(2, 1, "inner", 9*time.Millisecond, 8*time.Millisecond,
@@ -196,7 +196,7 @@ func TestSelfTimeIsWhatASpansChildrenDidNotTake(t *testing.T) {
 			effect.EventStatusSuccess),
 	})
 
-	outer := assembled.Roots[0]
+	outer := tree.Roots[0]
 	if self := outer.Self(); self != 2*time.Millisecond {
 		t.Fatalf("expected the two milliseconds it kept, got %v", self)
 	}
@@ -209,7 +209,7 @@ func TestSelfTimeIsNeverNegativeAndAnOpenSpanHasNone(t *testing.T) {
 	// Children run at once when work is forked, so they can add up to more
 	// than the parent's wall-clock. A negative self time would be a strange
 	// way to report concurrency.
-	assembled := trace.Assemble([]effect.RuntimeEvent{
+	tree := trace.Assemble([]effect.RuntimeEvent{
 		spanStarted(1, 0, "forking", 0),
 		spanStarted(2, 1, "first", 0),
 		spanEnded(2, 1, "first", 8*time.Millisecond, 8*time.Millisecond,
@@ -222,11 +222,11 @@ func TestSelfTimeIsNeverNegativeAndAnOpenSpanHasNone(t *testing.T) {
 		spanStarted(4, 0, "waiting", 0),
 	})
 
-	forking := assembled.Roots[0]
+	forking := tree.Roots[0]
 	if self := forking.Self(); self != 0 {
 		t.Fatalf("expected no self time rather than a negative one, got %v", self)
 	}
-	open := assembled.Open()
+	open := tree.Open()
 	if self := open[0].Self(); self != 0 {
 		t.Fatalf("expected an open span to have no self time, got %v", self)
 	}

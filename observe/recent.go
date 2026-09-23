@@ -22,28 +22,28 @@ import (
 // tell a quiet program from a window that has already turned over.
 type Recent struct {
 	mutex   sync.Mutex
-	held    []effect.RuntimeEvent
+	slots   []effect.RuntimeEvent
 	next    int
 	wrapped bool
-	seen    uint64
+	total   uint64
 }
 
-// Keep makes a window over the last capacity events.
-func Keep(capacity int) (*Recent, error) {
+// NewRecent makes a window over the last capacity events.
+func NewRecent(capacity int) (*Recent, error) {
 	if capacity < 1 {
 		return nil, errNoWindow
 	}
-	return &Recent{held: make([]effect.RuntimeEvent, capacity)}, nil
+	return &Recent{slots: make([]effect.RuntimeEvent, capacity)}, nil
 }
 
 // Observe records the event, replacing the oldest once the window is full.
 func (recent *Recent) Observe(_ context.Context, event effect.RuntimeEvent) {
 	recent.mutex.Lock()
 	defer recent.mutex.Unlock()
-	recent.held[recent.next] = event
+	recent.slots[recent.next] = event
 	recent.next++
-	recent.seen++
-	if recent.next == len(recent.held) {
+	recent.total++
+	if recent.next == len(recent.slots) {
 		recent.next = 0
 		recent.wrapped = true
 	}
@@ -57,18 +57,18 @@ func (recent *Recent) Events() []effect.RuntimeEvent {
 	recent.mutex.Lock()
 	defer recent.mutex.Unlock()
 	if !recent.wrapped {
-		return append([]effect.RuntimeEvent{}, recent.held[:recent.next]...)
+		return append([]effect.RuntimeEvent{}, recent.slots[:recent.next]...)
 	}
-	ordered := make([]effect.RuntimeEvent, 0, len(recent.held))
-	ordered = append(ordered, recent.held[recent.next:]...)
-	return append(ordered, recent.held[:recent.next]...)
+	events := make([]effect.RuntimeEvent, 0, len(recent.slots))
+	events = append(events, recent.slots[recent.next:]...)
+	return append(events, recent.slots[:recent.next]...)
 }
 
-// Seen is how many events have arrived, including those forgotten.
-func (recent *Recent) Seen() uint64 {
+// Count is how many events have arrived, including those forgotten.
+func (recent *Recent) Count() uint64 {
 	recent.mutex.Lock()
 	defer recent.mutex.Unlock()
-	return recent.seen
+	return recent.total
 }
 
 var errNoWindow = errors.New("observe: a window needs a capacity of at least one")

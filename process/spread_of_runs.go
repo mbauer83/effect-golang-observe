@@ -19,12 +19,12 @@ import (
 	"time"
 )
 
-// AllocatedAt is the bytes a run of this name allocated, at the given share
+// BytesAt is the bytes a run of this name allocated, at the given share
 // of its kept runs.
 //
-//	cost.AllocatedAt(0.5)   // what a typical run allocates
-//	cost.AllocatedAt(0.99)  // what the worst one in a hundred allocates
-func (cost Cost) AllocatedAt(share float64) uint64 {
+//	cost.BytesAt(0.5)   // what a typical run allocates
+//	cost.BytesAt(0.99)  // what the worst one in a hundred allocates
+func (cost Cost) BytesAt(share float64) uint64 {
 	return atShare(cost.Runs, share, func(run Run) uint64 {
 		return run.Change.AllocatedBytes
 	})
@@ -42,19 +42,19 @@ func (cost Cost) ObjectsAt(share float64) uint64 {
 	})
 }
 
-// TookAt is how long a run took, at the given share.
-func (cost Cost) TookAt(share float64) time.Duration {
+// DurationAt is how long a run took, at the given share.
+func (cost Cost) DurationAt(share float64) time.Duration {
 	return time.Duration(atShare(cost.Runs, share, func(run Run) uint64 {
-		if run.Change.Over < 0 {
+		if run.Change.Duration < 0 {
 			return 0
 		}
-		return uint64(run.Change.Over)
+		return uint64(run.Change.Duration)
 	}))
 }
 
-// KeptRunCount is how many runs these figures are drawn from, so a reader can
+// RunCount is how many runs these figures are drawn from, so a reader can
 // tell a quantile over two hundred runs from one over three.
-func (cost Cost) KeptRunCount() int { return len(cost.Runs) }
+func (cost Cost) RunCount() int { return len(cost.Runs) }
 
 // atShare is the value at a share of the runs, read from the sorted
 // measurements.

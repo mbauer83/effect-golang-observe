@@ -7,23 +7,25 @@ loses nothing — and the wrong shape to read: the question a person asks is
 
 ```go
 trace.Assemble(events []effect.RuntimeEvent) Trace
-trace.Watch() *Running        // the spans open now
-trace.WatchFibers() *Fibers   // the fibers running now
+trace.NewSpans() *Spans     // the spans open now
+trace.NewFibers() *Fibers   // the fibers running now
 
 func (trace Trace) Render() string
 func (trace Trace) Walk(visit func(span Span, depth int))
 func (trace Trace) Spans() []Span
 func (trace Trace) Open() []Span
-func (trace Trace) Failed() []Span
+func (trace Trace) Unsuccessful() []Span
 
-func (running *Running) Open() []Span
-func (running *Running) Count() int
-func (running *Running) Started() uint64
-func (running *Running) Ended() uint64
+func (spans *Spans) Open() []Span
+func (spans *Spans) Count() int
+func (spans *Spans) Starts() uint64
+func (spans *Spans) Ends() uint64
 
-func (fibers *Fibers) Running() []Fiber
+func (fibers *Fibers) Tree() []Fiber
 func (fibers *Fibers) Render(now time.Time) string
 func Identity(root Span) string
+func (span Span) IsOpen() bool
+func (span Span) IsUnsuccessful() bool
 func (span Span) Age(now time.Time) time.Duration
 func (fiber Fiber) Age(now time.Time) time.Duration
 ```
@@ -32,10 +34,10 @@ func (fiber Fiber) Age(now time.Time) time.Duration
 
 **`Assemble` answers "what happened"** over a finite collection of events: one
 run, one request, a window somebody kept with
-[`observe.Keep`](observe.md#the-window). It is a pure fold, so the same events
+[`observe.NewRecent`](observe.md#the-window). It is a pure fold, so the same events
 always give the same tree, siblings included.
 
-**`Running` answers "what is happening"** as an observer. It keeps only the
+**`Spans` answers "what is happening"** as an observer. It keeps only the
 spans that are open — a span is remembered when it starts and forgotten when it
 ends — so a process that opens and closes a million spans holds none of them.
 That is what makes it safe to install for the life of a program, which is when
@@ -115,7 +117,7 @@ found out arrives only at the end.
 ## The untidy collections, which are the normal ones
 
 **A span that never ended stays open.** `Open()` is true, `Duration` and `Ended`
-are zero, and `Failed()` is false — it has not ended in anything yet. This is
+are zero, and `IsUnsuccessful()` is false — it has not ended in anything yet. This is
 the report and not a gap: a span still open when a run finished is where a hung
 program is, and dropping it for being incomplete would hide exactly that.
 
@@ -135,7 +137,7 @@ together needs.
 Siblings are ordered by the runtime's timestamps, with the span identity
 breaking a tie: two spans that started in the same instant are still two spans,
 and a stable order for them is worth more than pretending the instant
-distinguishes them. `Running.Open()` returns spans in the order they were
+distinguishes them. `Spans.Open()` returns spans in the order they were
 opened, so the first one listed is the one that has been running longest.
 
 ## Rendering

@@ -12,12 +12,12 @@ import (
 	"github.com/mbauer83/effect-golang/effect"
 )
 
-// counting records under a lock, because a buffer delivers from a goroutine of
+// slowRecorder records under a lock, because a buffer delivers from a goroutine of
 // its own and the whole point is that the caller's fiber is not the one
 // delivering.
-type counting struct {
-	mutex sync.Mutex
-	seen  []effect.RuntimeEvent
+type slowRecorder struct {
+	mutex  sync.Mutex
+	events []effect.RuntimeEvent
 	// entered reports each delivery and release holds the worker inside one.
 	// entered is buffered, because the worker reports every delivery and a
 	// test only waits for the first: an unbuffered one would hold the worker
@@ -26,35 +26,35 @@ type counting struct {
 	release chan struct{}
 }
 
-func (record *counting) Observe(_ context.Context, event effect.RuntimeEvent) {
+func (record *slowRecorder) Observe(_ context.Context, event effect.RuntimeEvent) {
 	if record.entered != nil {
 		record.entered <- struct{}{}
 		<-record.release
 	}
 	record.mutex.Lock()
 	defer record.mutex.Unlock()
-	record.seen = append(record.seen, event)
+	record.events = append(record.events, event)
 }
 
-func (record *counting) count() int {
+func (record *slowRecorder) count() int {
 	record.mutex.Lock()
 	defer record.mutex.Unlock()
-	return len(record.seen)
+	return len(record.events)
 }
 
-func (record *counting) operations() []string {
+func (record *slowRecorder) operations() []string {
 	record.mutex.Lock()
 	defer record.mutex.Unlock()
-	named := make([]string, 0, len(record.seen))
-	for _, event := range record.seen {
-		named = append(named, event.Operation)
+	names := make([]string, 0, len(record.events))
+	for _, event := range record.events {
+		names = append(names, event.Operation)
 	}
-	return named
+	return names
 }
 
 func TestFlushDeliversEverythingQueuedAndEndsTheQueueing(t *testing.T) {
-	kept := &counting{}
-	buffer, err := observe.Buffer(kept, 64, observe.Block)
+	sink := &slowRecorder{}
+	buffer, err := observe.NewBuffer(sink, 64, observe.Block)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestFlushDeliversEverythingQueuedAndEndsTheQueueing(t *testing.T) {
 	if err := buffer.Flush(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if got := kept.count(); got != 20 {
+	if got := sink.count(); got != 20 {
 		t.Fatalf("expected everything queued delivered, got %d", got)
 	}
 
@@ -73,10 +73,10 @@ func TestFlushDeliversEverythingQueuedAndEndsTheQueueing(t *testing.T) {
 	// emits runtime_closed after flushing its capabilities, so a buffer that
 	// stopped listening at Flush would never deliver it.
 	buffer.Observe(context.Background(), spanStarted(21, 0, "late", 0))
-	if got := kept.count(); got != 21 {
+	if got := sink.count(); got != 21 {
 		t.Fatalf("expected the late event delivered inline, got %d", got)
 	}
-	if dropped := buffer.Dropped(); dropped != 0 {
+	if dropped := buffer.Drops(); dropped != 0 {
 		t.Fatalf("expected nothing dropped by a queue this size, got %d", dropped)
 	}
 	// And flushing again is nothing, so an owner that also flushes after the
@@ -89,26 +89,26 @@ func TestFlushDeliversEverythingQueuedAndEndsTheQueueing(t *testing.T) {
 func TestDropNewestKeepsWhatIsQueuedAndCountsWhatItRefused(t *testing.T) {
 	// The worker is held inside its first delivery, so the queue is provably
 	// full rather than probably full.
-	kept := &counting{entered: make(chan struct{}, 8), release: make(chan struct{})}
-	buffer, err := observe.Buffer(kept, 2, observe.DropNewest)
+	sink := &slowRecorder{entered: make(chan struct{}, 8), release: make(chan struct{})}
+	buffer, err := observe.NewBuffer(sink, 2, observe.DropNewest)
 	if err != nil {
 		t.Fatal(err)
 	}
 	buffer.Observe(context.Background(), spanStarted(1, 0, "first", 0))
-	<-kept.entered
+	<-sink.entered
 
 	buffer.Observe(context.Background(), spanStarted(2, 0, "second", 0))
 	buffer.Observe(context.Background(), spanStarted(3, 0, "third", 0))
 	buffer.Observe(context.Background(), spanStarted(4, 0, "refused", 0))
-	if dropped := buffer.Dropped(); dropped != 1 {
+	if dropped := buffer.Drops(); dropped != 1 {
 		t.Fatalf("expected the arriving event dropped, got %d", dropped)
 	}
 
-	close(kept.release)
+	close(sink.release)
 	if err := buffer.Flush(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if got := kept.operations(); len(got) != 3 || got[2] != "third" {
+	if got := sink.operations(); len(got) != 3 || got[2] != "third" {
 		t.Fatalf("expected the queued three and not the fourth, got %v", got)
 	}
 }
@@ -116,36 +116,36 @@ func TestDropNewestKeepsWhatIsQueuedAndCountsWhatItRefused(t *testing.T) {
 func TestDropOldestMakesRoomForWhatJustHappened(t *testing.T) {
 	// The other way round, and the reason both exist: a window on what is
 	// happening now wants the recent events, not the first ones it ever saw.
-	kept := &counting{entered: make(chan struct{}, 8), release: make(chan struct{})}
-	buffer, err := observe.Buffer(kept, 2, observe.DropOldest)
+	sink := &slowRecorder{entered: make(chan struct{}, 8), release: make(chan struct{})}
+	buffer, err := observe.NewBuffer(sink, 2, observe.DropOldest)
 	if err != nil {
 		t.Fatal(err)
 	}
 	buffer.Observe(context.Background(), spanStarted(1, 0, "delivering", 0))
-	<-kept.entered
+	<-sink.entered
 
 	buffer.Observe(context.Background(), spanStarted(2, 0, "oldest", 0))
 	buffer.Observe(context.Background(), spanStarted(3, 0, "middle", 0))
 	buffer.Observe(context.Background(), spanStarted(4, 0, "newest", 0))
-	if dropped := buffer.Dropped(); dropped != 1 {
+	if dropped := buffer.Drops(); dropped != 1 {
 		t.Fatalf("expected one event dropped to make room, got %d", dropped)
 	}
 
-	close(kept.release)
+	close(sink.release)
 	if err := buffer.Flush(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	got := kept.operations()
+	got := sink.operations()
 	if len(got) != 3 || got[1] != "middle" || got[2] != "newest" {
 		t.Fatalf("expected the oldest queued one dropped, got %v", got)
 	}
 }
 
 func TestABufferNeedsSomewhereToDeliverAndSomewhereToHold(t *testing.T) {
-	if _, err := observe.Buffer(nil, 4, observe.Block); err == nil {
+	if _, err := observe.NewBuffer(nil, 4, observe.Block); err == nil {
 		t.Error("expected a buffer with no observer to be refused")
 	}
-	if _, err := observe.Buffer(&counting{}, 0, observe.Block); err == nil {
+	if _, err := observe.NewBuffer(&slowRecorder{}, 0, observe.Block); err == nil {
 		t.Error("expected a buffer with no capacity to be refused")
 	}
 }
@@ -154,12 +154,12 @@ func TestDeliveryOutlivesTheCancellationOfTheFiberThatEmitted(t *testing.T) {
 	// An interrupted run is when the events matter most, and its context is
 	// cancelled by the time a queue drains. An exporter handed that context
 	// would abandon exactly those events.
-	kept := &noting{}
-	buffer, err := observe.Buffer(observerOf(func(ctx context.Context, event effect.RuntimeEvent) {
+	sink := &recorder{}
+	buffer, err := observe.NewBuffer(observerOf(func(ctx context.Context, event effect.RuntimeEvent) {
 		if ctx.Err() != nil {
 			t.Errorf("delivered with a cancelled context: %v", ctx.Err())
 		}
-		kept.Observe(ctx, event)
+		sink.Observe(ctx, event)
 	}), 4, observe.Block)
 	if err != nil {
 		t.Fatal(err)
@@ -172,8 +172,8 @@ func TestDeliveryOutlivesTheCancellationOfTheFiberThatEmitted(t *testing.T) {
 	if err := buffer.Flush(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if len(kept.seen) != 1 {
-		t.Fatalf("expected the event delivered, got %d", len(kept.seen))
+	if len(sink.events) != 1 {
+		t.Fatalf("expected the event delivered, got %d", len(sink.events))
 	}
 }
 
