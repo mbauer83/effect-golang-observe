@@ -28,7 +28,7 @@ type Collector struct {
 
 // NewCollector makes a collector over a declared vocabulary.
 //
-// The bounds are the duration buckets; stating none takes DefaultBounds.
+// The bounds are the duration buckets; stating none takes DefaultBoundaries.
 func NewCollector(vocabulary Vocabulary, bounds ...time.Duration) *Collector {
 	return &Collector{
 		vocabulary: vocabulary,

@@ -27,7 +27,7 @@ const sizeHistogram = "/gc/heap/allocs-by-size:bytes"
 // Sizes is a reading of the allocation-size histogram, cumulative since the
 // process started.
 //
-// Bounds are the upper edge of each bucket and Counts how many allocations
+// Boundaries are the upper edge of each bucket and Counts how many allocations
 // have fallen at or below it and above the one before. A Sizes on its own says
 // what the process has ever done; the difference between two says what it did
 // in between.

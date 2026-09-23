@@ -54,7 +54,7 @@ why ZIO's `Fiber.dump` reports a fiber's age before it reports anything else
 about it, and why `dumpAllWith` walks the tree from the roots rather than
 listing fibers flat.
 
-`WatchFibers` is that view. It keeps only the running fibers, nested as they
+`NewFibers` is that view. It keeps only the running fibers, nested as they
 were forked, oldest first — by the runtime's own timestamps and not by the
 order the events arrived, because fibers that begin at once arrive in whichever
 order their goroutines got scheduled, and a live view that reordered itself
@@ -99,7 +99,7 @@ was.
 
 ## What a Span carries
 
-`ID`, `ParentID`, `Name`, `Source`, `FiberID`, `Started`, `Ended`, `Duration`,
+`ID`, `ParentID`, `Name`, `Source`, `FiberID`, `StartTime`, `EndTime`, `Duration`,
 `Status`, `Attributes`, `Children` and `Events`.
 
 `Duration` is **the runtime's own measurement**, taken from the `span_ended`
@@ -116,7 +116,7 @@ found out arrives only at the end.
 
 ## The untidy collections, which are the normal ones
 
-**A span that never ended stays open.** `Open()` is true, `Duration` and `Ended`
+**A span that never ended stays open.** `IsOpen()` is true, `Duration` and `EndTime`
 are zero, and `IsUnsuccessful()` is false — it has not ended in anything yet. This is
 the report and not a gap: a span still open when a run finished is where a hung
 program is, and dropping it for being incomplete would hide exactly that.
@@ -152,6 +152,6 @@ the one that ran.
 
 Nothing is parsed back out of the text. Every question it answers — what is
 open, what failed, how long something took — is answered directly by `Open`,
-`Failed`, `Spans` and the span's own fields, which is the rule the runtime's own
+`Unsuccessful`, `Spans` and the span's own fields, which is the rule the runtime's own
 [cause rendering](https://github.com/mbauer83/effect-golang/blob/main/docs/reference/cause.md)
 follows.

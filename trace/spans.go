@@ -77,7 +77,7 @@ func (spans *Spans) finish(event effect.RuntimeEvent) {
 
 // Open are the spans still running, in the order they were opened.
 //
-// Each is open by construction: Ended and Duration are zero, because a span
+// Each is open by construction: EndTime and Duration are zero, because a span
 // this still holds has not been seen to end.
 func (spans *Spans) Open() []Span {
 	spans.mutex.Lock()
@@ -99,7 +99,7 @@ func (spans *Spans) Count() int {
 	return len(spans.open)
 }
 
-// Starts and Ended are how many spans this has seen begin and end. A gap
+// Starts and Ends are how many spans this has seen begin and end. A gap
 // between them that does not close is the same report Open makes, in one
 // number that a metric can carry.
 func (spans *Spans) Starts() uint64 {

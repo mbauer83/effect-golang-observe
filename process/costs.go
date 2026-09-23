@@ -5,7 +5,7 @@ package process
 // The nearest honest thing to per-span memory and CPU. Go has no per-goroutine
 // counter for either, so what can be measured is the process over a window,
 // and what a window can be attributed to is the caller's judgement. The field
-// names carry the caveat rather than a paragraph nobody reads: AllocatedDuring
+// names carry the caveat rather than a paragraph nobody reads: BytesDuring
 // is what the process allocated *during* the work, which on a busy program
 // includes everything else that ran.
 //
@@ -40,7 +40,7 @@ type Cost struct {
 	Duration time.Duration
 	Longest  time.Duration
 	// Collections is how many garbage collections completed during the runs,
-	// which is what makes a large AllocatedDuring readable: allocation that
+	// which is what makes a large BytesDuring readable: allocation that
 	// never provokes a collection costs nothing to collect.
 	Collections uint64
 	// Spread is the sizes of the allocations, or empty when the account was

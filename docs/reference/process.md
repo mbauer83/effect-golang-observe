@@ -2,7 +2,7 @@
 
 ```go
 process.Read() Reading
-process.Between(before, after Reading) Change
+process.Diff(before, after Reading) Change
 process.NewSeries(capacity int) (*Series, error)
 process.NewCosts(names ...string) *Costs
 
@@ -70,7 +70,7 @@ and the runtime deliberately does not spawn those for a capability.
 ## Costs
 
 The nearest honest thing to per-span memory and CPU: what the *process* spent
-while named work ran. `AllocatedDuring` and `CPUSecondsDuring` carry the caveat
+while named work ran. `BytesDuring` and `CPUSecondsDuring` carry the caveat
 in their names, because a reader who takes them for attribution will draw the
 wrong conclusion and a paragraph elsewhere will not stop them — on a busy
 program, concurrent work is in these numbers.
@@ -121,7 +121,7 @@ histogram measured at 311ns against 290ns for the scalars alone — twenty
 nanoseconds. What a caller is choosing is the *keeping*: a set of size classes
 per name.
 
-`Spread.Banded()` gathers the 68 classes into six — ≤64B, ≤256B, ≤1KiB, ≤4KiB,
+`Spread.Bands()` gathers the 68 classes into six — ≤64B, ≤256B, ≤1KiB, ≤4KiB,
 ≤32KiB, larger — because a busy program touches nearly every class and the raw
 list is a wall rather than a disclosure. The edges are where Go's own behaviour
 changes: the tiny allocator, the size classes, and past 32KiB a large object
@@ -138,9 +138,9 @@ say plainly.
 
 ```go
 cost.Runs        // the recent runs of this name, newest first
-run.Ended        // when the window closed
+run.EndTime      // when the window closed
 run.Change       // what the process did during it
-process.KeptRuns // how many of them a name keeps
+process.MaxRuns  // how many of them a name keeps
 ```
 
 An account is an average over every run of a name. That is the right answer to
@@ -155,7 +155,7 @@ so a caller holding both can say which run was which. That is the only join
 available — this package holds no spans, and Go reports no per-goroutine
 allocation for one to be keyed by.
 
-Bounded like everything else here, at `KeptRuns` per name. A name that runs
+Bounded like everything else here, at `MaxRuns` per name. A name that runs
 twice a second outlives thirty-two runs in sixteen seconds, which was the first
 number tried and was not enough for a window of traces.
 

@@ -56,10 +56,11 @@ func awaitRelease(
 	index int,
 ) program[int] {
 	operations := effect.For[effect.Unit, Refusal]()
-	return operations.WidenError(signal.Succeed[effect.Unit](effect.Unit{})).
-		FlatMap(func(bool) program[int] {
-			return release.Await[effect.Unit]().Map(func(effect.Unit) int { return index })
-		}).
+	return effect.Gen(func(do *effect.Do[effect.Unit, Refusal]) int {
+		do.Await(operations.WidenError(signal.Succeed[effect.Unit](effect.Unit{})))
+		do.Await(release.Await[effect.Unit]())
+		return index
+	}).
 		WithName("await-release").
 		WithSpan("holding")
 }

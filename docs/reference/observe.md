@@ -64,7 +64,7 @@ which of the three it meant and the choice is real:
 | `DropOldest` | discards the longest-waiting event | a window on what is happening now |
 | `Block` | makes the emitting fiber wait | an audit trail, where the events are the point and slowing the work is the honest price |
 
-**`Dropped()` is the only evidence a buffered pipeline lost anything**, so it is
+**`Drops()` is the only evidence a buffered pipeline lost anything**, so it is
 readable rather than logged. A program that reports its own telemetry should
 report this too.
 
@@ -92,7 +92,7 @@ emits more events than anything wants to hold, so the question a debugger asks
 is not "what happened" but "what happened just now" — and a fixed window is the
 only way an observer installed for the life of a program may answer it.
 
-`Seen()` counts everything, including what has been forgotten, so a reader can
+`Count()` counts everything, including what has been forgotten, so a reader can
 tell a quiet program from a window that has already turned over. `Events()`
 returns a copy, oldest first; the window keeps being written to, and a reader
 walking the live one would see events move under it.

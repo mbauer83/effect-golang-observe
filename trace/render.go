@@ -60,7 +60,7 @@ func (trace Trace) spansWhere(keep func(Span) bool) []Span {
 //
 // Stable is the point: the same events render the same text, so a recorded
 // trace is something a test can compare against. Nothing here is parsed back
-// -- every question the text answers, Open, Failed, Spans and the span's own
+// -- every question the text answers, Open, Unsuccessful, Spans and the span's own
 // fields answer directly, which is the rule the runtime's own cause rendering
 // follows.
 func (trace Trace) Render() string {

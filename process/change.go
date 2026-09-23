@@ -12,10 +12,10 @@ import "time"
 // hundred megabytes is a fact, and two hundred megabytes allocated per second
 // is a decision to look at.
 type Change struct {
-	// Duration is the wall-clock time the window covered, and Ended when the later
+	// Duration is the wall-clock time the window covered, and EndTime when the later
 	// reading was taken.
 	//
-	// Ended is what attributes a window to the work that ran in it: an average
+	// EndTime is what attributes a window to the work that ran in it: an average
 	// over a name says what the name costs, and only a window with a time on
 	// it says what one run of it cost.
 	Duration time.Duration

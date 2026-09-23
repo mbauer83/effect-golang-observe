@@ -18,7 +18,7 @@ import (
 // way an observer may answer it: this one is installed for the whole life of a
 // program, and a slice that grew per event would be the leak.
 //
-// Seen counts everything, including what has been forgotten, so a reader can
+// Count counts everything, including what has been forgotten, so a reader can
 // tell a quiet program from a window that has already turned over.
 type Recent struct {
 	mutex   sync.Mutex

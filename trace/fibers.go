@@ -159,7 +159,7 @@ func (fibers *Fibers) Count() int {
 	return len(fibers.running)
 }
 
-// Starts and Ended are how many fibers this has seen begin and complete.
+// Starts and Ends are how many fibers this has seen begin and complete.
 func (fibers *Fibers) Starts() uint64 {
 	fibers.mutex.Lock()
 	defer fibers.mutex.Unlock()

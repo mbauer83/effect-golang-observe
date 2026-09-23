@@ -22,7 +22,7 @@ one that is not:
 
 - `EventKind` and `EventStatus` are bounded by the runtime — seventeen kinds,
   five statuses.
-- the operation name is bounded by the caller, who declares with `Naming` which
+- the operation name is bounded by the caller, who declares with `NewVocabulary` which
   of its operations are worth their own series. Everything else is measured
   under `metrics.Other`.
 
@@ -30,7 +30,7 @@ One bucket for everything unnamed rather than a bucket per name: the point of
 declaring a vocabulary is that the number of series cannot grow with the
 traffic, and an escape hatch that grew would give the guarantee away.
 
-`Naming()` with nothing named is a legitimate choice. Every measurement is then
+`NewVocabulary()` with nothing named is a legitimate choice. Every measurement is then
 labelled by kind and status alone, which is the cheapest useful aggregate and
 where a program with no opinion should start.
 
@@ -73,7 +73,7 @@ answer is whichever of the two says more. Where the bucket bound *is* the
 tighter one it is still what comes back: the clamp must not throw away
 resolution the buckets do have.
 
-`DefaultBounds` runs from a microsecond to ten seconds, which took two goes to
+`DefaultBoundaries` runs from a microsecond to ten seconds, which took two goes to
 get right. Bounds starting at a millisecond put every in-process span in the
 first bucket; starting at a hundred microseconds still did, because a span
 around a `Ref` read or a handler answering from memory takes single-digit
